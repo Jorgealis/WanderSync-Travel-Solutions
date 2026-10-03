@@ -185,7 +185,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 
 **Rol B — Scraping real, Dask y Prefect**
 - [x] **2.1** Evaluar las fuentes del enunciado (Google Flights, Kayak, Booking) con `robots.txt` y una petición de prueba cada una. Resultado: Google Flights elegida para vuelos; Kayak y Booking descartadas (registro en §1.4).
-- [ ] **2.2** Ajustar los contratos al scraping real:
+- [x] **2.2** Ajustar los contratos al scraping real (además: `generate_env.py --sync` para actualizar un `.env` existente sin perder secretos; `INGEST_DAYS_AHEAD` pasó a `INGEST_DATE_OFFSETS=7,14,30` para acotar las peticiones):
   - [modelo-datos.md](docs/contratos/modelo-datos.md): `flight_number` opcional; nuevos campos `operated_by`, `stops`, `price_original` y `currency_original`; inventario inicial asignado por el sistema
   - [schema.graphql](docs/contratos/schema.graphql): `flightNumber` opcional y `stops`
   - [.env.example](.env.example) y `docker-compose.yml`: quitar `MOCK_*` (incluido `MOCK_PROVIDERS_URL` en `dask-worker` y `prefect-worker`) e `INGEST_MAX_PAGES`; bajar `INGEST_SCHEDULE_CRON` de cada 10 min a cada hora; agregar `SCRAPER_*` (pausa entre peticiones, máximo de peticiones por ejecución, User-Agent, tasa de fallos simulados para la demo, inventario inicial)

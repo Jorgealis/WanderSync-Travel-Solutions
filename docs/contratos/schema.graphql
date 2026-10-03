@@ -64,18 +64,28 @@ enum OfferSort {
 
 type FlightOffer {
   id: ID!
+  "Fuente real de la que se extrajo la oferta, p. ej. google-flights"
   source: String!
   airline: String!
-  flightNumber: String!
+  "Aerolínea que opera el vuelo si es distinta de `airline` (código compartido)"
+  operatedBy: String
+  "La fuente no siempre lo publica"
+  flightNumber: String
   origin: String!
   destination: String!
   departureAt: DateTime!
   arrivalAt: DateTime!
   durationMinutes: Int!
+  "0 = vuelo directo"
+  stops: Int!
   cabinClass: CabinClass!
-  "Precio por pasajero"
+  "Precio por pasajero, normalizado a USD"
   price: Decimal!
   currency: String!
+  "Precio tal como lo publicó la fuente, p. ej. 84390.00"
+  originalPrice: Decimal!
+  "Moneda de la fuente, p. ej. COP"
+  originalCurrency: String!
   seatsAvailable: Int!
   scrapedAt: DateTime!
 }
@@ -97,6 +107,8 @@ type HotelOffer {
   "Precio por habitación del rango completo"
   priceTotal: Decimal!
   currency: String!
+  originalPrice: Decimal!
+  originalCurrency: String!
   roomsAvailable: Int!
   scrapedAt: DateTime!
 }
@@ -116,6 +128,8 @@ type CarOffer {
   pricePerDay: Decimal!
   priceTotal: Decimal!
   currency: String!
+  originalPrice: Decimal!
+  originalCurrency: String!
   unitsAvailable: Int!
   scrapedAt: DateTime!
 }
@@ -126,6 +140,8 @@ input FlightSearchInput {
   departureDate: Date!
   passengers: Int! = 1
   cabinClass: CabinClass
+  "Solo vuelos con como máximo este número de escalas (0 = solo directos)"
+  maxStops: Int
   maxPrice: Decimal
   sortBy: OfferSort = PRICE_ASC
   limit: Int = 20

@@ -38,6 +38,35 @@ x-python-service: &python-service
     retries: 5
     start_period: 20s
 
+# Configuración de la ingesta y del scraper real. La reciben `dask-worker`
+# (donde corren las tareas de scraping) y `prefect-worker` (que ejecuta el flow).
+x-ingest-env: &ingest-env
+  <<: *common-env
+  DASK_SCHEDULER_ADDRESS: ${DASK_SCHEDULER_ADDRESS:-tcp://dask-scheduler:8786}
+  # Credenciales del usuario `ingest`: escribe el catálogo.
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-wandersync}
+  INGEST_DB_USER: ${INGEST_DB_USER}
+  INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?}
+  INGEST_SCHEDULE_CRON: ${INGEST_SCHEDULE_CRON:-0 * * * *}
+  INGEST_ROUTES: ${INGEST_ROUTES:-BOG-MDE}
+  INGEST_DATE_OFFSETS: ${INGEST_DATE_OFFSETS:-7,14,30}
+  INGEST_STAY_NIGHTS: ${INGEST_STAY_NIGHTS:-3,5,7}
+  INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE:-500}
+  INGEST_TASK_RETRIES: ${INGEST_TASK_RETRIES:-3}
+  INGEST_TASK_RETRY_DELAY_SECONDS: ${INGEST_TASK_RETRY_DELAY_SECONDS:-10}
+  INGEST_DEFAULT_SEATS: ${INGEST_DEFAULT_SEATS:-30}
+  INGEST_DEFAULT_ROOMS: ${INGEST_DEFAULT_ROOMS:-10}
+  INGEST_DEFAULT_CARS: ${INGEST_DEFAULT_CARS:-5}
+  SCRAPER_USER_AGENT: "${SCRAPER_USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36}"
+  SCRAPER_ACCEPT_LANGUAGE: "${SCRAPER_ACCEPT_LANGUAGE:-es-CO,es;q=0.9}"
+  SCRAPER_TIMEOUT_SECONDS: ${SCRAPER_TIMEOUT_SECONDS:-20}
+  SCRAPER_MIN_DELAY_SECONDS: ${SCRAPER_MIN_DELAY_SECONDS:-5}
+  SCRAPER_MAX_REQUESTS_PER_RUN: ${SCRAPER_MAX_REQUESTS_PER_RUN:-40}
+  SCRAPER_SOURCE_CONCURRENCY: ${SCRAPER_SOURCE_CONCURRENCY:-2}
+  SCRAPER_FAULT_RATE: ${SCRAPER_FAULT_RATE:-0}
+
 # Imagen común de Dask + Prefect (tarea 1.3).
 x-data-pipeline: &data-pipeline
   build:
@@ -174,16 +203,8 @@ services:
       - ":8789"
     deploy:
       replicas: ${DASK_WORKER_REPLICAS:-3}
-    environment:
-      <<: *common-env
-      DASK_SCHEDULER_ADDRESS: ${DASK_SCHEDULER_ADDRESS:-tcp://dask-scheduler:8786}
-      # Credenciales del usuario `ingest`: los workers escriben el catálogo (Fase 2).
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_DB: ${POSTGRES_DB:-wandersync}
-      INGEST_DB_USER: ${INGEST_DB_USER}
-      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?}
-      MOCK_PROVIDERS_URL: ${MOCK_PROVIDERS_URL:-http://mock-providers:8000}
+    # Necesitan salida a Internet: aquí corre el scraping real (ver tarea 5.7).
+    environment: *ingest-env
     depends_on:
       dask-scheduler:
         condition: service_healthy
@@ -219,23 +240,8 @@ services:
     # Crea el work pool `ingest-pool` si no existe y ejecuta los flows desplegados.
     command: ["prefect", "worker", "start", "--pool", "ingest-pool", "--type", "process"]
     environment:
-      <<: *common-env
+      <<: *ingest-env
       PREFECT_API_URL: ${PREFECT_API_URL:-http://prefect-server:4200/api}
-      DASK_SCHEDULER_ADDRESS: ${DASK_SCHEDULER_ADDRESS:-tcp://dask-scheduler:8786}
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_DB: ${POSTGRES_DB:-wandersync}
-      INGEST_DB_USER: ${INGEST_DB_USER}
-      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?}
-      MOCK_PROVIDERS_URL: ${MOCK_PROVIDERS_URL:-http://mock-providers:8000}
-      INGEST_SCHEDULE_CRON: ${INGEST_SCHEDULE_CRON:-*/10 * * * *}
-      INGEST_ROUTES: ${INGEST_ROUTES:-}
-      INGEST_DAYS_AHEAD: ${INGEST_DAYS_AHEAD:-14}
-      INGEST_STAY_NIGHTS: ${INGEST_STAY_NIGHTS:-3,5,7}
-      INGEST_MAX_PAGES: ${INGEST_MAX_PAGES:-5}
-      INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE:-500}
-      INGEST_TASK_RETRIES: ${INGEST_TASK_RETRIES:-3}
-      INGEST_TASK_RETRY_DELAY_SECONDS: ${INGEST_TASK_RETRY_DELAY_SECONDS:-10}
     depends_on:
       prefect-server:
         condition: service_healthy

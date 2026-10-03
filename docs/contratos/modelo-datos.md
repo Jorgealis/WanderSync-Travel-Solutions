@@ -11,7 +11,10 @@ Además de la base `wandersync`, la instancia aloja dos bases auxiliares: `hasur
 | Llaves primarias | `UUID` con `DEFAULT gen_random_uuid()` |
 | Fechas con hora | `TIMESTAMPTZ`, siempre en UTC |
 | Fechas sin hora | `DATE` (check-in, recogida de auto, etc.) |
-| Dinero | `NUMERIC(12,2)`. **Nunca `FLOAT`**. Todo el catálogo se normaliza a **USD** durante la ingesta |
+| Dinero | `NUMERIC(12,2)`. **Nunca `FLOAT`**. Todo el catálogo se normaliza a **USD** durante la ingesta; el precio tal como lo publicó la fuente se conserva en `price_original` + `currency_original` (trazabilidad del scraping) |
+| Origen de los datos | **Scraping real** de fuentes públicas (ver PROGRESO.md §1.4). `source` identifica la fuente: `google-flights`, etc. |
+| `external_id` | Identificador estable de la oferta dentro de su fuente. Si la fuente no publica uno, es un **hash SHA-1 de los campos que identifican la oferta** (definidos por catálogo más abajo). Junto con `source` es la llave del upsert |
+| Inventario | Las fuentes reales **no publican cupos**. WanderSync asigna el inventario inicial **solo al insertar** una oferta nueva (`INGEST_DEFAULT_SEATS`, `INGEST_DEFAULT_ROOMS`, `INGEST_DEFAULT_CARS`) y desde ahí lo gestiona la SAGA |
 | Moneda | `CHAR(3)` ISO 4217, valor por defecto `'USD'` |
 | Ciudades y aeropuertos | `CHAR(3)` código IATA en mayúsculas (`BOG`, `MDE`, `CTG`…). Para hoteles y autos se usa el código IATA de la ciudad, así se cruzan con el destino del vuelo |
 | Auditoría | Todas las tablas tienen `created_at` y `updated_at` (`TIMESTAMPTZ NOT NULL DEFAULT now()`) |
@@ -41,21 +44,27 @@ erDiagram
 
 ### `flights.flight_offers` (catálogo, lo llena la ingesta)
 
+Fuente: **Google Flights** (búsqueda solo ida por ruta y fecha).
+
 | Columna | Tipo | Restricciones | Notas |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `source` | VARCHAR(50) | NOT NULL | Fuente de origen, p. ej. `mock-skyscan` |
-| `external_id` | VARCHAR(100) | NOT NULL | ID de la oferta en la fuente |
-| `airline` | VARCHAR(100) | NOT NULL | |
-| `flight_number` | VARCHAR(20) | NOT NULL | |
+| `source` | VARCHAR(50) | NOT NULL | `google-flights` |
+| `external_id` | VARCHAR(100) | NOT NULL | SHA-1 de `airline` + `origin` + `destination` + `departure_at` + `arrival_at` + `cabin_class` (Google Flights no publica un ID) |
+| `airline` | VARCHAR(100) | NOT NULL | Aerolínea que vende el vuelo |
+| `operated_by` | VARCHAR(100) | NULL | Aerolínea que lo opera, si es distinta (código compartido) |
+| `flight_number` | VARCHAR(20) | NULL | **Opcional**: la fuente no siempre lo publica |
 | `origin` | CHAR(3) | NOT NULL | IATA |
 | `destination` | CHAR(3) | NOT NULL | IATA |
 | `departure_at` | TIMESTAMPTZ | NOT NULL | |
 | `arrival_at` | TIMESTAMPTZ | NOT NULL | `CHECK (arrival_at > departure_at)` |
+| `stops` | SMALLINT | NOT NULL DEFAULT 0, `>= 0` | Número de escalas (0 = directo) |
 | `cabin_class` | VARCHAR(20) | NOT NULL | `ECONOMY` \| `PREMIUM_ECONOMY` \| `BUSINESS` \| `FIRST` |
-| `price` | NUMERIC(12,2) | NOT NULL, `> 0` | Precio **por pasajero** en USD |
+| `price` | NUMERIC(12,2) | NOT NULL, `> 0` | Precio **por pasajero** normalizado a USD |
 | `currency` | CHAR(3) | NOT NULL DEFAULT `'USD'` | |
-| `seats_total` | INT | NOT NULL, `> 0` | |
+| `price_original` | NUMERIC(14,2) | NOT NULL, `> 0` | Precio tal como lo publicó la fuente (p. ej. `84390.00`) |
+| `currency_original` | CHAR(3) | NOT NULL | Moneda de la fuente (p. ej. `COP`) |
+| `seats_total` | INT | NOT NULL, `> 0` | Asignado por WanderSync al insertar (`INGEST_DEFAULT_SEATS`) |
 | `seats_available` | INT | NOT NULL, `>= 0`, `<= seats_total` | **Inventario: solo lo modifica flights-service** |
 | `scraped_at` | TIMESTAMPTZ | NOT NULL | Última vez que la ingesta vio la oferta |
 | `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL | |
@@ -87,13 +96,15 @@ erDiagram
 
 ### `hotels.room_offers` (catálogo)
 
-Una oferta representa un tipo de habitación en un hotel **para un rango de fechas concreto**, igual que en los resultados de búsqueda de Booking.
+Una oferta representa una habitación en un hotel **para un rango de fechas concreto**, como en los resultados de un buscador de hoteles.
+
+> ⚠️ **Provisional hasta la tarea 2.5** (evaluación de la fuente de hoteles). Los campos que la fuente elegida no publique pasarán a ser opcionales.
 
 | Columna | Tipo | Restricciones | Notas |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `source` | VARCHAR(50) | NOT NULL | p. ej. `mock-bookstay` |
-| `external_id` | VARCHAR(100) | NOT NULL | |
+| `source` | VARCHAR(50) | NOT NULL | Por definir en la tarea 2.5 |
+| `external_id` | VARCHAR(100) | NOT NULL | ID de la fuente o hash de `hotel_name` + `city_code` + `room_type` + `check_in` + `check_out` |
 | `hotel_name` | VARCHAR(150) | NOT NULL | |
 | `city_code` | CHAR(3) | NOT NULL | IATA de la ciudad |
 | `address` | VARCHAR(255) | NULL | |
@@ -107,7 +118,9 @@ Una oferta representa un tipo de habitación en un hotel **para un rango de fech
 | `price_per_night` | NUMERIC(12,2) | NOT NULL, `> 0` | USD |
 | `price_total` | NUMERIC(12,2) | NOT NULL | Precio **por habitación** del rango completo |
 | `currency` | CHAR(3) | NOT NULL DEFAULT `'USD'` | |
-| `rooms_total` | INT | NOT NULL, `> 0` | |
+| `price_original` | NUMERIC(14,2) | NOT NULL, `> 0` | Precio total tal como lo publicó la fuente |
+| `currency_original` | CHAR(3) | NOT NULL | |
+| `rooms_total` | INT | NOT NULL, `> 0` | Asignado por WanderSync al insertar (`INGEST_DEFAULT_ROOMS`) |
 | `rooms_available` | INT | NOT NULL, `>= 0`, `<= rooms_total` | **Inventario: solo lo modifica hotels-service** |
 | `scraped_at`, `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -123,11 +136,13 @@ Misma estructura que `flights.reservations`. `quantity` = número de habitacione
 
 ### `cars.car_offers` (catálogo)
 
+> ⚠️ **Provisional hasta la tarea 2.7** (evaluación de la fuente de autos). Los campos que la fuente elegida no publique pasarán a ser opcionales.
+
 | Columna | Tipo | Restricciones | Notas |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `source` | VARCHAR(50) | NOT NULL | p. ej. `mock-rentwheels` |
-| `external_id` | VARCHAR(100) | NOT NULL | |
+| `source` | VARCHAR(50) | NOT NULL | Por definir en la tarea 2.7 |
+| `external_id` | VARCHAR(100) | NOT NULL | ID de la fuente o hash de `company` + `model` + `city_code` + `pickup_date` + `dropoff_date` |
 | `company` | VARCHAR(100) | NOT NULL | |
 | `model` | VARCHAR(100) | NOT NULL | |
 | `category` | VARCHAR(20) | NOT NULL | `ECONOMY` \| `COMPACT` \| `SUV` \| `VAN` \| `LUXURY` |
@@ -140,7 +155,9 @@ Misma estructura que `flights.reservations`. `quantity` = número de habitacione
 | `price_per_day` | NUMERIC(12,2) | NOT NULL, `> 0` | USD |
 | `price_total` | NUMERIC(12,2) | NOT NULL | |
 | `currency` | CHAR(3) | NOT NULL DEFAULT `'USD'` | |
-| `units_total` | INT | NOT NULL, `> 0` | |
+| `price_original` | NUMERIC(14,2) | NOT NULL, `> 0` | Precio total tal como lo publicó la fuente |
+| `currency_original` | CHAR(3) | NOT NULL | |
+| `units_total` | INT | NOT NULL, `> 0` | Asignado por WanderSync al insertar (`INGEST_DEFAULT_CARS`) |
 | `units_available` | INT | NOT NULL, `>= 0`, `<= units_total` | **Inventario: solo lo modifica cars-service** |
 | `scraped_at`, `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -279,10 +296,16 @@ La factura solo se emite cuando la SAGA termina con éxito (último paso, que es
 El upsert de la ingesta es:
 
 ```sql
-INSERT INTO flights.flight_offers (...) VALUES (...)
+-- Oferta nueva: el inventario inicial lo asigna WanderSync (seats_total = seats_available = INGEST_DEFAULT_SEATS)
+INSERT INTO flights.flight_offers (..., seats_total, seats_available) VALUES (..., :default_seats, :default_seats)
+-- Oferta ya conocida: solo se refrescan precio y metadata
 ON CONFLICT (source, external_id) DO UPDATE
-SET price = EXCLUDED.price, airline = EXCLUDED.airline, departure_at = EXCLUDED.departure_at,
-    arrival_at = EXCLUDED.arrival_at, scraped_at = EXCLUDED.scraped_at, updated_at = now();
+SET price = EXCLUDED.price, currency = EXCLUDED.currency,
+    price_original = EXCLUDED.price_original, currency_original = EXCLUDED.currency_original,
+    operated_by = EXCLUDED.operated_by, flight_number = EXCLUDED.flight_number,
+    stops = EXCLUDED.stops, scraped_at = EXCLUDED.scraped_at, updated_at = now();
 ```
 
-**Nunca actualiza `seats_available` / `rooms_available` / `units_available`.** Si lo hiciera, cada ejecución del flow de Prefect borraría las reservas hechas por la SAGA. Esto se refuerza con privilegios por columna: `ingest` tiene `INSERT` sobre toda la tabla, pero `UPDATE` solo sobre las columnas de precio y metadata, así que Postgres rechaza el error aunque el código lo cometa.
+Los campos que forman el `external_id` (aerolínea, ruta, horarios y clase) no se actualizan: si cambian, es otra oferta.
+
+**Nunca actualiza `seats_total` / `seats_available` ni sus equivalentes en hoteles y autos.** Si lo hiciera, cada ejecución del flow de Prefect borraría las reservas hechas por la SAGA. Esto se refuerza con privilegios por columna: `ingest` tiene `INSERT` sobre toda la tabla, pero `UPDATE` solo sobre las columnas de precio y metadata, así que Postgres rechaza el error aunque el código lo cometa.

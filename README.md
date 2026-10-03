@@ -13,6 +13,8 @@ docker compose up --build
 
 El primer arranque tarda unos minutos (construye las imágenes); los siguientes, alrededor de 90 s hasta que todo está *healthy*. Para empezar de cero, incluida la base de datos: `docker compose down -v`.
 
+Cuando cambie `.env.example` (por ejemplo, tras un `git pull`), actualice su `.env` sin perder los secretos con `python scripts/generate_env.py --sync`.
+
 Si algún puerto ya está ocupado por otro proyecto, cámbielo en `.env` (`*_HOST_PORT`). Si cambia el de Prefect, ajuste también `PREFECT_UI_API_URL`.
 
 | Panel | URL |

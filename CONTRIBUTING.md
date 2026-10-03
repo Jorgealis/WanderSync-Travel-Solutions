@@ -23,7 +23,7 @@
 | `refactor` | Cambio interno sin cambiar comportamiento |
 | `security` | Cambios de seguridad (hardening, actualizaciones por auditoría) |
 
-Ámbitos: `gateway`, `auth`, `flights`, `hotels`, `cars`, `orders`, `saga`, `pipeline`, `mock`, `hasura`, `infra`, `frontend`, `docs`.
+Ámbitos: `gateway`, `auth`, `flights`, `hotels`, `cars`, `orders`, `saga`, `pipeline`, `scraper`, `hasura`, `infra`, `frontend`, `docs`.
 
 Ejemplos: `feat(saga): add compensation for car reservation failure`, `chore(infra): add healthchecks to compose`.
 
