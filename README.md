@@ -7,9 +7,13 @@ Plataforma de empaquetamiento turístico dinámico (vuelos + hotel + auto) const
 ## Arranque rápido
 
 ```bash
-cp .env.example .env
+python scripts/generate_env.py   # crea .env con secretos aleatorios
 docker compose up --build
 ```
+
+El primer arranque tarda unos minutos (construye las imágenes); los siguientes, alrededor de 90 s hasta que todo está *healthy*. Para empezar de cero, incluida la base de datos: `docker compose down -v`.
+
+Si algún puerto ya está ocupado por otro proyecto, cámbielo en `.env` (`*_HOST_PORT`). Si cambia el de Prefect, ajuste también `PREFECT_UI_API_URL`.
 
 | Panel | URL |
 |---|---|

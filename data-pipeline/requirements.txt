@@ -1,0 +1,16 @@
+# Una sola imagen para dask-scheduler, dask-worker, prefect-server y prefect-worker.
+# Dask exige que cliente, scheduler y workers tengan EXACTAMENTE las mismas versiones;
+# compartir imagen lo garantiza.
+dask==2026.8.0
+distributed==2026.8.0
+bokeh==3.10.0          # dashboard de Dask (:8787)
+prefect==3.8.7
+prefect-dask==0.3.7
+
+# Scraping, limpieza y persistencia (Fase 2)
+httpx==0.28.1
+selectolax==0.4.13
+pandas==3.0.6
+pydantic==2.13.5
+sqlalchemy==2.1.3
+psycopg[binary]==3.3.6
