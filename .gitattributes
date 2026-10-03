@@ -1,0 +1,7 @@
+# Fuerza LF en el repositorio. Crítico en Windows: un entrypoint .sh con CRLF
+# falla dentro de los contenedores Linux con "/bin/sh^M: not found".
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary

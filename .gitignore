@@ -1,0 +1,35 @@
+# --- Secretos y entorno ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dask-worker-space/
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+.vite/
+*.local
+npm-debug.log*
+
+# --- Generados ---
+frontend/src/gql/
+*.log
+
+# --- IDE / SO ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,407 @@
+"""
+WanderSync — Contrato de la API pública (API Gateway GraphQL).
+
+Es la ÚNICA API que consume el frontend. El gateway (Strawberry) la implementa y el
+frontend genera sus tipos a partir de este archivo con GraphQL Codegen.
+
+Convenciones:
+- Autenticación por cookie de sesión HttpOnly (`ws_session`), que el gateway gestiona.
+  No hay tokens en el cuerpo de las respuestas.
+- Dinero: escalar `Decimal` serializado como string ("1234.50"), siempre en USD.
+- Errores: se devuelven en `errors[]` con `extensions.code`:
+    UNAUTHENTICATED   sin sesión válida
+    FORBIDDEN         el recurso no pertenece al usuario
+    BAD_USER_INPUT    validación fallida (`extensions.fields` indica qué campos)
+    NOT_FOUND         recurso inexistente
+    CONFLICT          p. ej. email ya registrado
+    RATE_LIMITED      límite excedido (`extensions.retryAfter` en segundos)
+    INTERNAL          error inesperado (sin detalles internos)
+- Límites: profundidad máxima de query = 8; `limit` máximo = 50.
+"""
+
+scalar DateTime  # ISO 8601 en UTC, p. ej. "2026-10-20T14:30:00Z"
+scalar Date      # ISO 8601, p. ej. "2026-10-20"
+scalar Decimal   # string decimal, p. ej. "349.90"
+
+# ============================================================================
+# Catálogo
+# ============================================================================
+
+enum CabinClass {
+  ECONOMY
+  PREMIUM_ECONOMY
+  BUSINESS
+  FIRST
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  TWIN
+  SUITE
+  FAMILY
+}
+
+enum CarCategory {
+  ECONOMY
+  COMPACT
+  SUV
+  VAN
+  LUXURY
+}
+
+enum Transmission {
+  MANUAL
+  AUTOMATIC
+}
+
+enum OfferSort {
+  PRICE_ASC
+  PRICE_DESC
+  DEPARTURE_ASC   # solo vuelos; en hoteles y autos equivale a PRICE_ASC
+  RATING_DESC     # solo hoteles; en vuelos y autos equivale a PRICE_ASC
+}
+
+type FlightOffer {
+  id: ID!
+  source: String!
+  airline: String!
+  flightNumber: String!
+  origin: String!
+  destination: String!
+  departureAt: DateTime!
+  arrivalAt: DateTime!
+  durationMinutes: Int!
+  cabinClass: CabinClass!
+  "Precio por pasajero"
+  price: Decimal!
+  currency: String!
+  seatsAvailable: Int!
+  scrapedAt: DateTime!
+}
+
+type HotelOffer {
+  id: ID!
+  source: String!
+  hotelName: String!
+  cityCode: String!
+  address: String
+  stars: Int!
+  rating: Float
+  roomType: RoomType!
+  maxGuests: Int!
+  checkIn: Date!
+  checkOut: Date!
+  nights: Int!
+  pricePerNight: Decimal!
+  "Precio por habitación del rango completo"
+  priceTotal: Decimal!
+  currency: String!
+  roomsAvailable: Int!
+  scrapedAt: DateTime!
+}
+
+type CarOffer {
+  id: ID!
+  source: String!
+  company: String!
+  model: String!
+  category: CarCategory!
+  transmission: Transmission!
+  seats: Int!
+  cityCode: String!
+  pickupDate: Date!
+  dropoffDate: Date!
+  days: Int!
+  pricePerDay: Decimal!
+  priceTotal: Decimal!
+  currency: String!
+  unitsAvailable: Int!
+  scrapedAt: DateTime!
+}
+
+input FlightSearchInput {
+  origin: String!
+  destination: String!
+  departureDate: Date!
+  passengers: Int! = 1
+  cabinClass: CabinClass
+  maxPrice: Decimal
+  sortBy: OfferSort = PRICE_ASC
+  limit: Int = 20
+  offset: Int = 0
+}
+
+input HotelSearchInput {
+  cityCode: String!
+  checkIn: Date!
+  checkOut: Date!
+  guests: Int! = 1
+  rooms: Int! = 1
+  minStars: Int
+  maxPrice: Decimal
+  sortBy: OfferSort = PRICE_ASC
+  limit: Int = 20
+  offset: Int = 0
+}
+
+input CarSearchInput {
+  cityCode: String!
+  pickupDate: Date!
+  dropoffDate: Date!
+  category: CarCategory
+  maxPrice: Decimal
+  sortBy: OfferSort = PRICE_ASC
+  limit: Int = 20
+  offset: Int = 0
+}
+
+"""
+Búsqueda consolidada de paquetes. Reglas de combinación:
+- el vuelo sale de `origin` hacia `destination` el día `departureDate`;
+- el hotel está en `destination` con checkIn = departureDate y checkOut = returnDate;
+- el auto se recoge en `destination` con pickupDate = departureDate y dropoffDate = returnDate;
+- todas las ofertas tienen disponibilidad suficiente para `passengers` y `rooms`.
+"""
+input PackageSearchInput {
+  origin: String!
+  destination: String!
+  departureDate: Date!
+  returnDate: Date!
+  passengers: Int! = 1
+  rooms: Int! = 1
+  maxBudget: Decimal
+  minHotelStars: Int
+  carCategory: CarCategory
+  cabinClass: CabinClass
+  limit: Int = 10
+}
+
+type PackagePriceBreakdown {
+  "flight.price * passengers"
+  flight: Decimal!
+  "hotel.priceTotal * rooms"
+  hotel: Decimal!
+  car: Decimal!
+  subtotal: Decimal!
+  "Impuestos estimados (TAX_RATE)"
+  taxes: Decimal!
+  total: Decimal!
+}
+
+type TravelPackage {
+  flight: FlightOffer!
+  hotel: HotelOffer!
+  car: CarOffer!
+  passengers: Int!
+  rooms: Int!
+  "Estimación con precios del catálogo. El precio final se fija al reservar."
+  estimatedPrice: PackagePriceBreakdown!
+  currency: String!
+}
+
+type CatalogSourceStatus {
+  "flights | hotels | cars"
+  catalog: String!
+  totalOffers: Int!
+  lastSyncAt: DateTime
+}
+
+# ============================================================================
+# Identidad
+# ============================================================================
+
+type User {
+  id: ID!
+  email: String!
+  fullName: String!
+  createdAt: DateTime!
+}
+
+input RegisterInput {
+  email: String!
+  "Mínimo 10 caracteres"
+  password: String!
+  fullName: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+"La sesión viaja en la cookie HttpOnly `ws_session`; nunca en el cuerpo de la respuesta."
+type AuthPayload {
+  user: User!
+}
+
+# ============================================================================
+# Órdenes y SAGA
+# ============================================================================
+
+enum OrderStatus {
+  "La SAGA está en curso"
+  PENDING
+  "SAGA COMPLETED: todo reservado, pagado y facturado"
+  CONFIRMED
+  "SAGA COMPENSATED: falló un paso y todo se revirtió"
+  CANCELLED
+  "SAGA FAILED: una compensación no se pudo completar (requiere intervención manual)"
+  FAILED
+}
+
+enum SagaStatus {
+  STARTED
+  COMPENSATING
+  COMPLETED
+  COMPENSATED
+  FAILED
+}
+
+enum SagaStepName {
+  RESERVE_FLIGHT
+  RESERVE_HOTEL
+  RESERVE_CAR
+  PROCESS_PAYMENT
+  CONFIRM_FLIGHT
+  CONFIRM_HOTEL
+  CONFIRM_CAR
+  ISSUE_INVOICE
+}
+
+enum SagaAction {
+  EXECUTE
+  COMPENSATE
+}
+
+enum SagaStepStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+"Punto de fallo simulado para la demo. Se ignora si el entorno no tiene ENABLE_FAULT_INJECTION=true."
+enum FailurePoint {
+  FLIGHT
+  HOTEL
+  CAR
+  PAYMENT
+}
+
+enum PaymentStatus {
+  CAPTURED
+  REFUNDED
+  FAILED
+}
+
+type SagaStep {
+  step: SagaStepName!
+  action: SagaAction!
+  status: SagaStepStatus!
+  attempt: Int!
+  errorCode: String
+  errorMessage: String
+  startedAt: DateTime!
+  finishedAt: DateTime
+}
+
+type Saga {
+  id: ID!
+  status: SagaStatus!
+  currentStep: SagaStepName
+  failureReason: String
+  simulatedFailureAt: FailurePoint
+  "Orden cronológico; incluye cada reintento y cada compensación"
+  steps: [SagaStep!]!
+}
+
+type Payment {
+  status: PaymentStatus!
+  amount: Decimal!
+  currency: String!
+  providerRef: String
+}
+
+type Invoice {
+  number: String!
+  subtotal: Decimal!
+  taxes: Decimal!
+  total: Decimal!
+  currency: String!
+  issuedAt: DateTime!
+}
+
+type Order {
+  id: ID!
+  status: OrderStatus!
+  passengers: Int!
+  rooms: Int!
+  "Null mientras las reservas no hayan fijado el precio"
+  subtotal: Decimal
+  taxes: Decimal
+  totalAmount: Decimal
+  currency: String!
+  "Las ofertas se resuelven contra el catálogo (Hasura) con DataLoader"
+  flight: FlightOffer
+  hotel: HotelOffer
+  car: CarOffer
+  saga: Saga!
+  payment: Payment
+  invoice: Invoice
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input BookPackageInput {
+  flightOfferId: ID!
+  hotelOfferId: ID!
+  carOfferId: ID!
+  passengers: Int!
+  rooms: Int! = 1
+  "UUID generado por el cliente en cada intento de checkout; repetirlo devuelve la misma orden"
+  idempotencyKey: String!
+  simulateFailureAt: FailurePoint
+}
+
+"""
+La reserva es ASÍNCRONA: la mutación devuelve la orden en PENDING y la SAGA corre en
+segundo plano. El cliente consulta `order(id)` periódicamente hasta un estado final.
+"""
+type BookPackagePayload {
+  order: Order!
+}
+
+# ============================================================================
+# Raíces
+# ============================================================================
+
+type Query {
+  # --- Catálogo (público) ---
+  searchFlights(input: FlightSearchInput!): [FlightOffer!]!
+  searchHotels(input: HotelSearchInput!): [HotelOffer!]!
+  searchCars(input: CarSearchInput!): [CarOffer!]!
+  searchPackages(input: PackageSearchInput!): [TravelPackage!]!
+  flightOffer(id: ID!): FlightOffer
+  hotelOffer(id: ID!): HotelOffer
+  carOffer(id: ID!): CarOffer
+  catalogStatus: [CatalogSourceStatus!]!
+
+  # --- Requieren sesión ---
+  me: User
+  order(id: ID!): Order
+  myOrders(limit: Int = 20, offset: Int = 0): [Order!]!
+}
+
+type Mutation {
+  "Crea el usuario e inicia sesión. Rate limit: RATE_LIMIT_REGISTER por IP."
+  register(input: RegisterInput!): AuthPayload!
+
+  "Rate limit: RATE_LIMIT_LOGIN por IP. Siempre emite un ID de sesión NUEVO."
+  login(input: LoginInput!): AuthPayload!
+
+  "Invalida la sesión en el servidor y borra la cookie."
+  logout: Boolean!
+
+  "Requiere sesión. Rate limit: RATE_LIMIT_BOOKING por usuario."
+  bookPackage(input: BookPackageInput!): BookPackagePayload!
+}
