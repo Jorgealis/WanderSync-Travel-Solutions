@@ -25,8 +25,8 @@ La idea es usar **Python en todo el backend**, porque Dask y Prefect son nativos
 | SAGA | **SAGA orquestada** dentro de `orders-service`: máquina de estados persistida (`saga_instances`, `saga_steps`), llamadas HTTP internas con `httpx`, idempotencia por `saga_id` y reintentos con `tenacity` | La orquestación se diagrama, se depura y se demuestra con más facilidad que la coreografía. El estado persistido permite reanudar la SAGA si el orquestador se cae |
 | Sesiones y rate limiting | **Redis 7.4** (sesiones del lado del servidor y contadores) + **slowapi/limits** | Permite regenerar el ID de sesión (contra Session Fixation) y aplicar rate limiting distribuido |
 | Hashing de contraseñas | **argon2-cffi (Argon2id)** con `time_cost=3`, `memory_cost=64 MiB`, `parallelism=4` | Requisito de seguridad |
-| Fuentes de scraping | **`mock-providers`**: servicio FastAPI que sirve HTML con paginación, latencia aleatoria y errores 5xx/429 inyectables, que imitan a Kayak, Booking y Rentalcars. Opcional: una fuente real | Fuentes estables para la demo; los fallos inyectados demuestran los *retries* |
-| Scraping y parseo | **httpx + selectolax/BeautifulSoup4** y **pandas / dask.dataframe** para limpieza | Liviano y fácil de paralelizar |
+| Fuentes de scraping | **Fuentes públicas reales**, evaluadas una por una (ver §1.4). Sin datos simulados ni Faker | Requisito 3.1 del enunciado: capturar información real y actualizada de plataformas públicas |
+| Scraping y parseo | **httpx + selectolax** (HTML renderizado en el servidor) y **pandas / dask.dataframe** para limpieza. *Playwright solo si una fuente lo exige y no implica saltarse protecciones* | Liviano y fácil de paralelizar en los workers de Dask |
 | Computación distribuida | **Dask Distributed**: 1 `dask-scheduler` y N `dask-worker` (escalables con `--scale`) y dashboard en `:8787` | Requisito obligatorio |
 | Orquestación y observabilidad | **Prefect 3**: `prefect-server` con UI en `:4200`, `prefect-worker` y **prefect-dask** (`DaskTaskRunner` apuntando al scheduler externo) | Requisito obligatorio: retries, schedules y monitoreo visual |
 | Frontend | **React 18 + Vite + TypeScript + Apollo Client + GraphQL Codegen + TailwindCSS**, servido con **Nginx** | Las consultas tipadas y los fragments piden solo los campos necesarios |
@@ -62,10 +62,11 @@ La idea es usar **Python en todo el backend**, porque Dask y Prefect son nativos
   │ Dask scheduler +   │◀──│ Prefect worker │──▶│ Prefect server  │ (UI :4200)
   │ N dask-workers     │   │ (flow ingesta) │   └─────────────────┘
   └─────────┬──────────┘   └────────────────┘
-            │ scraping HTTP
-     ┌──────▼─────────┐
-     │ mock-providers │ (HTML con fallos inyectables)
-     └────────────────┘
+            │ scraping HTTP (con pausas y límite de peticiones)
+     ┌──────▼──────────────────────────────┐
+     │ Fuentes públicas reales (Internet)  │
+     │ Google Flights · hoteles · autos    │
+     └─────────────────────────────────────┘
 ```
 
 ### 1.2 Estructura del repositorio
@@ -81,11 +82,11 @@ wandersync/
 │   ├── flights-service/
 │   ├── hotels-service/
 │   ├── cars-service/
-│   ├── orders-service/           # órdenes, facturación, pagos simulados, orquestador SAGA
-│   └── mock-providers/           # fuentes de scraping simuladas
+│   └── orders-service/           # órdenes, facturación, pagos simulados, orquestador SAGA
 ├── data-pipeline/
 │   ├── flows/                    # flows Prefect
-│   ├── scrapers/                 # parsers por fuente
+│   ├── scrapers/                 # un scraper por fuente real (google_flights.py, ...)
+│   ├── tests/fixtures/           # HTML real guardado para probar los parsers sin red
 │   └── Dockerfile                # imagen común para dask-worker y prefect-worker
 ├── infra/
 │   ├── postgres/init/            # creación de esquemas, roles y extensiones
@@ -112,6 +113,26 @@ wandersync/
 | Postgres | 5432 (solo en desarrollo) |
 | Servicios internos | sin publicar; solo red interna `backend` |
 
+### 1.4 Fuentes de datos: scraping real
+
+**Política de scraping responsable** (aplica a todas las fuentes y se documenta en el informe técnico):
+1. Solo se usan rutas que el `robots.txt` de la fuente **no prohíbe**.
+2. **No se saltan CAPTCHAs ni protecciones anti-bot.** Si una fuente responde con un desafío, se descarta.
+3. Se hacen pocas peticiones y espaciadas: pausa mínima entre peticiones a una misma fuente, límite de peticiones por ejecución y concurrencia limitada por fuente en Prefect, **aunque Dask tenga más workers libres**.
+4. Si una fuente bloquea o cambia su HTML, el flow falla de forma controlada y el catálogo conserva los últimos datos válidos.
+
+**Registro de fuentes.** Se evalúa una fuente a la vez: primero `robots.txt`, después una única petición de prueba.
+
+| Catálogo | Fuente | `robots.txt` | Respuesta a una petición | Veredicto | Fecha |
+|---|---|---|---|---|---|
+| Vuelos | **Google Flights** (`/travel/flights?q=...`) | Permitido (solo prohíbe `/travel/flights/search` y `/travel/flights/s/`) | `200`, 55 vuelos en el HTML (precio COP, aerolínea, aeropuertos, horarios, duración) | ✅ **Elegida** | 2026-10-03 |
+| Vuelos/hoteles/autos | Kayak | **Prohíbe** `/flights/`, `/hotels/` y `/cars/` | — | ❌ Descartada | 2026-10-03 |
+| Hoteles | Booking.com | Permite `searchresults` | `202` con desafío anti-bot, sin datos | ❌ Descartada | 2026-10-03 |
+| Hoteles | *por evaluar (tarea 2.5)* | | | | |
+| Autos | *por evaluar (tarea 2.7)* | | | | |
+
+**Impacto en el modelo de datos.** Las fuentes reales no publican cupos (asientos, habitaciones ni autos disponibles). El **inventario inicial lo asigna WanderSync** al insertar una oferta nueva (valor configurable) y desde ese momento lo gestiona la SAGA. Además, los precios llegan en COP y se normalizan a USD.
+
 ---
 
 ## 2. Hitos de sincronización
@@ -122,7 +143,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 |---|---|---|
 | **H0 — Contratos (día 1–2)** | Modelo de datos, SDL GraphQL del gateway, contratos REST internos (reserve/cancel/confirm), `.env.example` | Trabajo en paralelo de A y B |
 | **H1 — Infra base (día 3)** | `docker compose up` levanta Postgres, Redis, Hasura, Dask y Prefect con healthchecks | Servicios de A sobre la infraestructura real |
-| **H2 — Catálogo poblado (día 6)** | El flow Prefect+Dask llena las tablas de catálogo | Búsqueda en el gateway y en el frontend |
+| **H2 — Catálogo poblado (día 7)** | El flow Prefect+Dask llena las tablas de catálogo **con datos reales** de las fuentes elegidas | Búsqueda en el gateway y en el frontend |
 | **H3 — SAGA funcional (día 8)** | Mutación `bookPackage` con *happy path* y compensaciones | Checkout en el frontend |
 | **H4 — Code freeze (día 12)** | Todo integrado, seguridad aplicada | Auditoría final, documentación y grabación de la demo |
 
@@ -149,7 +170,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 
 **Rol B**
 - [x] **1.1** Escribir `docker-compose.yml` con `postgres`, `redis`, `hasura`, `dask-scheduler`, `dask-worker` (con réplicas), `prefect-server` y `prefect-worker`, todos con `healthcheck` y redes `frontend`/`backend`.
-- [x] **1.2** Crear el script `infra/postgres/init/01-roles-and-schemas.sh`: esquemas, un usuario por servicio dueño de su esquema, los usuarios `ingest` y `hasura_ro` (este último de solo lectura) y las bases auxiliares de Hasura y Prefect. *Los `GRANT` por tabla y por columna para `ingest` y `hasura_ro` van en la primera migración Alembic de cada servicio de catálogo (2.8–2.10), porque las tablas aún no existen.*
+- [x] **1.2** Crear el script `infra/postgres/init/01-roles-and-schemas.sh`: esquemas, un usuario por servicio dueño de su esquema, los usuarios `ingest` y `hasura_ro` (este último de solo lectura) y las bases auxiliares de Hasura y Prefect. *Los `GRANT` por tabla y por columna para `ingest` y `hasura_ro` van en la primera migración Alembic de cada servicio de catálogo (2.13–2.15), porque las tablas aún no existen.*
 - [x] **1.3** Crear la imagen `data-pipeline/Dockerfile` (Python 3.12, dask, distributed, prefect, prefect-dask, httpx, selectolax, pandas, sqlalchemy, psycopg) y usar **las mismas versiones** en scheduler, workers y prefect-worker. *Si las versiones no coinciden, Dask falla.*
 - [x] **1.4** Verificar el hito **H1**: `docker compose up` deja todo *healthy* sin pasos manuales. ✅ Verificado el 2026-10-03: arranque limpio (`down -v` + `up`) en unos 90 s con los 14 contenedores *healthy*, y el flow de humo `flows/smoke.py` repartió sus tareas entre los 3 workers de Dask.
 
@@ -158,27 +179,48 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [x] **1.6** Crear `libs/common`: middleware de `correlation_id`, cliente httpx con timeouts y reintentos, y utilidades de idempotencia.
 - [x] **1.7** Hacer que las migraciones de Alembic corran al arrancar cada servicio (entrypoint `alembic upgrade head`), sin intervención manual.
 
-### Fase 2 — Ingesta distribuida y servicios de dominio (Días 3–6)
+### Fase 2 — Ingesta distribuida y servicios de dominio (Días 3–7)
 
-**Rol B — Scraping, Dask y Prefect**
-- [ ] **2.1** Crear el servicio **`mock-providers`**: páginas HTML de vuelos, hoteles y autos con paginación, datos generados con Faker y semilla, latencia aleatoria y **fallos configurables** (`FAILURE_RATE`, respuestas 500/429/timeouts).
-- [ ] **2.2** Escribir los **scrapers/parsers** por fuente (`scrapers/flights.py`, `hotels.py`, `cars.py`): HTML → registros crudos.
-- [ ] **2.3** Escribir las funciones de **limpieza y normalización** (monedas, fechas ISO, deduplicación, validación con Pydantic), paralelizables con `dask.dataframe`/`dask.bag`.
-- [ ] **2.4** Implementar la **persistencia por lotes**: `INSERT ... ON CONFLICT DO UPDATE` (upsert) en bloques, para no saturar la BD.
-- [ ] **2.5** Escribir el **flow de Prefect** `ingest_travel_data`:
-  - `@task(retries=3, retry_delay_seconds=exponential_backoff(10), retry_jitter_factor=0.5)` para extracción y escritura
-  - `task_runner=DaskTaskRunner(address="tcp://dask-scheduler:8786")`
-  - fan-out con `.map()` por fuente × página × ruta, y subflows `ingest_flights`, `ingest_hotels`, `ingest_cars`
-  - artefactos de Prefect (`create_table_artifact`) con un resumen de registros insertados y descartados
-- [ ] **2.6** Crear un **deployment de Prefect** con schedule (por ejemplo, cada 10 min) que se registre automáticamente al arrancar el contenedor (`prefect deploy` o `flow.serve()` en el entrypoint).
-- [ ] **2.7** Verificar el hito **H2**: el flow aparece en la UI de Prefect, los workers aparecen activos en el dashboard de Dask, se observan reintentos ante los fallos inyectados y las tablas quedan pobladas.
+> **Cambio de alcance (2026-10-03):** se reemplazan las fuentes simuladas por **scraping real**, evaluando y construyendo **una fuente a la vez** (ver §1.4). Cada scraper se prueba solo antes de integrarlo en Dask y Prefect.
+
+**Rol B — Scraping real, Dask y Prefect**
+- [x] **2.1** Evaluar las fuentes del enunciado (Google Flights, Kayak, Booking) con `robots.txt` y una petición de prueba cada una. Resultado: Google Flights elegida para vuelos; Kayak y Booking descartadas (registro en §1.4).
+- [ ] **2.2** Ajustar los contratos al scraping real:
+  - [modelo-datos.md](docs/contratos/modelo-datos.md): `flight_number` opcional; nuevos campos `operated_by`, `stops`, `price_original` y `currency_original`; inventario inicial asignado por el sistema
+  - [schema.graphql](docs/contratos/schema.graphql): `flightNumber` opcional y `stops`
+  - [.env.example](.env.example) y `docker-compose.yml`: quitar `MOCK_*` (incluido `MOCK_PROVIDERS_URL` en `dask-worker` y `prefect-worker`) e `INGEST_MAX_PAGES`; bajar `INGEST_SCHEDULE_CRON` de cada 10 min a cada hora; agregar `SCRAPER_*` (pausa entre peticiones, máximo de peticiones por ejecución, User-Agent, tasa de fallos simulados para la demo, inventario inicial)
+  - [CONTRIBUTING.md](CONTRIBUTING.md): cambiar el ámbito de commit `mock` por `scraper`
+- [ ] **2.3** **Fuente 1 — scraper de Google Flights** (`scrapers/google_flights.py`):
+  - descarga solo ida por ruta y fecha (agregar `one way` a la consulta), con pausa entre peticiones y límite por ejecución
+  - enviar un User-Agent de navegador: con el de httpx por defecto, Google redirige a `/travel/flights/unsupported` y no entrega vuelos (comprobado el 2026-10-03)
+  - extracción de aerolínea, operador, aeropuertos, salida, llegada, duración, escalas y precio
+  - **detección de bloqueo**: si llega un CAPTCHA o desafío, se lanza un error específico, **sin reintentar contra la fuente**
+  - guarda una página real en `tests/fixtures/` y prueba el parser sin red (pytest)
+  - prueba manual: una ruta (BOG→MDE) impresa por consola
+- [ ] **2.4** Validar el scraper de Google Flights en varias rutas y fechas (`INGEST_ROUTES`) y documentar sus límites: formato, campos que faltan y cambios de idioma o moneda.
+- [ ] **2.5** **Fuente 2 — evaluar fuentes de hoteles** con el mismo procedimiento que 2.1 (candidata inicial: Google Hotels) y registrar el resultado en §1.4.
+- [ ] **2.6** **Scraper de hoteles** sobre la fuente elegida en 2.5, con el mismo nivel de pruebas que 2.3.
+- [ ] **2.7** **Fuente 3 — evaluar fuentes de alquiler de autos** y registrar el resultado en §1.4. *Es la más difícil: Google no tiene búsqueda de autos.* Si ninguna fuente es viable sin saltarse protecciones, se documenta y **se decide con el equipo** antes de seguir.
+- [ ] **2.8** **Scraper de autos** sobre la fuente elegida en 2.7.
+- [ ] **2.9** **Limpieza y normalización** paralelizable con `dask.bag`/`dask.dataframe`:
+  - conversión COP → USD (tasa configurable o de una fuente pública de TRM)
+  - fechas a ISO/UTC y deduplicación por `(source, external_id)`
+  - validación con Pydantic; los registros inválidos se descartan y se cuentan
+- [ ] **2.10** **Persistencia por lotes**: upsert `ON CONFLICT DO UPDATE` que **nunca** modifica el inventario; el inventario inicial se asigna solo al insertar una oferta nueva.
+- [ ] **2.11** **Flow de Prefect** `ingest_travel_data`:
+  - `DaskTaskRunner(address="tcp://dask-scheduler:8786")` con fan-out `.map()` por fuente × ruta × fecha
+  - `@task(retries=3, retry_delay_seconds=exponential_backoff(10), retry_jitter_factor=0.5)` en extracción y escritura; **sin reintentos** ante bloqueo (CAPTCHA)
+  - **límite de concurrencia por fuente** (tags de Prefect), para no saturar las fuentes reales
+  - interruptor `SCRAPER_FAULT_RATE`, que simula fallos de red, para demostrar los *retries* en vivo
+  - subflows `ingest_flights`, `ingest_hotels` e `ingest_cars`, y artefactos con el resumen (descargados, válidos, descartados, insertados, actualizados)
+- [ ] **2.12** **Deployment de Prefect** con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
 
 **Rol A — Servicios de dominio**
-- [ ] **2.8** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
-- [ ] **2.9** **hotels-service**: igual que 2.8 para habitaciones.
-- [ ] **2.10** **cars-service**: igual que 2.8 para vehículos.
-- [ ] **2.11** Agregar un **mecanismo de inyección de fallos** en cada servicio (header `X-Simulate-Failure` o flag de la SAGA), activo solo con `ENABLE_FAULT_INJECTION=true`.
-- [ ] **2.12** Escribir pruebas unitarias de la reserva y la cancelación: idempotencia, falta de cupo y doble cancelación.
+- [ ] **2.13** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
+- [ ] **2.14** **hotels-service**: igual que 2.13 para habitaciones.
+- [ ] **2.15** **cars-service**: igual que 2.13 para vehículos.
+- [ ] **2.16** Agregar un **mecanismo de inyección de fallos** en cada servicio (header `X-Simulate-Failure` o flag de la SAGA), activo solo con `ENABLE_FAULT_INJECTION=true`.
+- [ ] **2.17** Escribir pruebas unitarias de la reserva y la cancelación: idempotencia, falta de cupo y doble cancelación.
 
 ### Fase 3 — Patrón SAGA y capa GraphQL de datos (Días 6–8)
 
@@ -238,14 +280,14 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 **Rol B**
 - [ ] **5.5** **Supply chain audit**: ejecutar `pip-audit -r requirements.txt` en cada servicio, `npm audit --audit-level=moderate` en el frontend y `trivy image` sobre cada imagen; guardar los reportes en `docs/seguridad/` (JSON y resumen en Markdown).
 - [ ] **5.6** Corregir o actualizar las dependencias vulnerables y documentar el antes y el después. Fijar versiones (`pip-compile --generate-hashes` / `package-lock.json`).
-- [ ] **5.7** Endurecer los contenedores: imágenes `slim`, usuario no-root, `read_only` donde sea posible, sin secretos en las imágenes y solo los puertos necesarios publicados.
+- [ ] **5.7** Endurecer los contenedores: imágenes `slim`, usuario no-root, `read_only` donde sea posible, sin secretos en las imágenes y solo los puertos necesarios publicados. *Si se marca la red `backend` como `internal: true`, los workers de Dask necesitan una red adicional con salida a Internet; sin ella, el scraping real deja de funcionar.*
 - [ ] **5.8** (Opcional, suma puntos) Workflow de GitHub Actions que ejecute pip-audit, npm audit y trivy en cada PR, más Dependabot.
 
 ### Fase 6 — Integración y pruebas end-to-end (Días 11–12) · *A+B*
 
-- [ ] **6.1 (A+B)** Probar el arranque limpio con `docker compose down -v && docker compose up --build`: todo debe levantar sin intervención manual, con migraciones, metadata de Hasura, deployment de Prefect y datos semilla.
+- [ ] **6.1 (A+B)** Probar el arranque limpio con `docker compose down -v && docker compose up --build`: todo debe levantar sin intervención manual, con migraciones, metadata de Hasura, deployment de Prefect y una primera ingesta real.
 - [ ] **6.2 (A)** Escribir el script E2E `tests/e2e/test_saga.py`, que contra el gateway haga login → búsqueda → `bookPackage` en el *happy path* y con fallo en cada paso, y verifique la orden y el inventario.
-- [ ] **6.3 (B)** Escribir el script E2E de ingesta: lanzar el flow manualmente y verificar las filas nuevas y los reintentos registrados en Prefect.
+- [ ] **6.3 (B)** Escribir el script E2E de ingesta: lanzar el flow manualmente y verificar las filas nuevas, los reintentos registrados en Prefect y que el inventario de las ofertas existentes no cambie.
 - [ ] **6.4 (B)** Probar el escalado: `docker compose up --scale dask-worker=4` y mostrar el reparto de tareas en el dashboard de Dask.
 - [ ] **6.5 (A+B)** Corregir los bugs de integración y alcanzar el hito **H4 (code freeze)**.
 
@@ -256,13 +298,13 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [ ] **7.2** Documentar la seguridad: diseño de sesiones (Session Fixation), parámetros de Argon2id y tabla de límites del rate limiting con su evidencia (capturas o salidas de las pruebas de 5.3).
 
 **Rol B**
-- [ ] **7.3** Escribir `docs/arquitectura.md` con el diagrama de componentes y despliegue (Mermaid/C4), el flujo de ingesta Prefect → Dask → Postgres → Hasura → Gateway, y la justificación técnica de cada elección del stack.
+- [ ] **7.3** Escribir `docs/arquitectura.md` con el diagrama de componentes y despliegue (Mermaid/C4), el flujo de ingesta Fuentes reales → Prefect → Dask → Postgres → Hasura → Gateway, la **política de scraping responsable y el registro de fuentes (§1.4)** con sus limitaciones (términos de uso, cambios de HTML), y la justificación técnica de cada elección del stack.
 - [ ] **7.4** Escribir un `README.md` con requisitos, `cp .env.example .env`, `docker compose up`, URLs de cada panel y usuarios demo.
 - [ ] **7.5** Compilar el **Documento Técnico** final (Markdown → PDF) que una 7.1, 7.2 y 7.3.
 
 **A+B**
 - [ ] **7.6** Escribir el **guion de la demo** (`docs/demo-guion.md`) cubriendo los cuatro puntos obligatorios:
-  - (a) UI de Prefect: flow en ejecución, reintentos y estados
+  - (a) UI de Prefect: flow de scraping real en ejecución, reintentos (con `SCRAPER_FAULT_RATE`) y estados
   - (b) dashboard de Dask: workers procesando tareas en paralelo
   - (c) frontend consumiendo GraphQL, con la pestaña Network del navegador mostrando las queries a `/graphql`
   - (d) checkout con fallo simulado en autos → línea de tiempo con compensaciones e inventario restaurado
@@ -277,7 +319,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 |---|---|---|
 | 0 | Contratos REST internos | `.env.example` (el resto, en conjunto) |
 | 1 | Plantilla de microservicio, `libs/common` | Docker Compose, Postgres init, imagen de Dask/Prefect |
-| 2 | Servicios de vuelos, hoteles y autos con inyección de fallos | Mock providers, scrapers, Dask, flow de Prefect |
+| 2 | Servicios de vuelos, hoteles y autos con inyección de fallos | Evaluación de fuentes reales, un scraper por fuente, limpieza, Dask, flow de Prefect |
 | 3 | Orquestador SAGA, pagos y pruebas | Hasura, esqueleto del frontend |
 | 4 | Gateway Strawberry, auth, sesiones | Vistas del frontend (búsqueda, checkout, línea de tiempo SAGA) |
 | 5 | Rate limiting, pruebas de seguridad, headers | Supply chain audit, hardening de contenedores |
@@ -290,10 +332,10 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 
 | Criterio (peso) | Requisito | Tareas que lo cubren |
 |---|---|---|
-| Arquitectura y Dockerización (15 %) | Microservicios Vuelos/Hoteles/Autos/Órdenes/Gateway; `docker compose up` sin pasos manuales | 1.1–1.7, 2.8–2.10, 3.1, 3.11, 5.7, 6.1 |
-| GraphQL y persistencia (15 %) | Gateway GraphQL único, consultas consolidadas, mutaciones, sin over-fetching, BD con GraphQL | 0.3, 2.4, 3.8–3.9, 4.1–4.2, 4.6, 4.8 |
-| SAGA (25 %) | *Happy path* + compensaciones automáticas ante fallos simulados | 0.4, 2.8–2.12, 3.1–3.7, 4.9–4.10, 6.2, 7.1 |
-| Dask + Prefect (25 %) | Workers Dask haciendo scraping e ingesta, flow Prefect con retries y monitoreo en UI | 1.3, 2.1–2.7, 6.3–6.4 |
+| Arquitectura y Dockerización (15 %) | Microservicios Vuelos/Hoteles/Autos/Órdenes/Gateway; `docker compose up` sin pasos manuales | 1.1–1.7, 2.13–2.15, 3.1, 3.11, 5.7, 6.1 |
+| GraphQL y persistencia (15 %) | Gateway GraphQL único, consultas consolidadas, mutaciones, sin over-fetching, BD con GraphQL | 0.3, 2.2, 2.10, 3.8–3.9, 4.1–4.2, 4.6, 4.8 |
+| SAGA (25 %) | *Happy path* + compensaciones automáticas ante fallos simulados | 0.4, 2.13–2.17, 3.1–3.7, 4.9–4.10, 6.2, 7.1 |
+| Dask + Prefect (25 %) | Workers Dask haciendo scraping real e ingesta, flow Prefect con retries y monitoreo en UI | 1.3, 2.1–2.12, 6.3–6.4 |
 | Ciberseguridad (20 %) | Session Fixation, Argon2id, rate limiting en auth/pago/checkout, supply chain audit | 4.3–4.6, 5.1–5.8, 7.2 |
 | Entregables | Repo, documento técnico, demo (a)(b)(c)(d) | 0.1, 7.1–7.8 |
 
@@ -304,7 +346,11 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 | Riesgo | Mitigación |
 |---|---|
 | Versiones distintas de Dask entre el cliente (Prefect) y los workers | Una sola imagen `data-pipeline` para scheduler, workers y prefect-worker (tarea 1.3) |
-| Scraping real bloqueado (CAPTCHA, cambios de HTML) | Usar `mock-providers` como fuente principal; una fuente real, si se usa, solo como complemento |
+| Una fuente real bloquea las peticiones o cambia su HTML | Detección de bloqueo sin reintentos agresivos; el catálogo conserva los últimos datos válidos; pruebas del parser con HTML guardado (`tests/fixtures/`) para detectar el cambio |
+| La fuente falla justo durante la demo | Ejecutar y validar una ingesta antes de la sustentación; el catálogo ya poblado permite seguir con la SAGA aunque la fuente no responda |
+| No existe fuente real viable para algún catálogo (por ejemplo, autos) | Se documenta en §1.4 y se decide con el equipo (tarea 2.7) antes de invertir tiempo |
+| Términos de uso de las fuentes | Respetar `robots.txt`, pocas peticiones y espaciadas, uso académico; se declara como limitación en el documento técnico |
+| Dask satura una fuente al paralelizar | Límite de concurrencia por fuente en Prefect y pausa mínima entre peticiones (tarea 2.11) |
 | `docker compose up` falla por orden de arranque | `healthcheck` + `depends_on: condition: service_healthy` y entrypoints que esperan a la BD |
 | Rate limiting inefectivo por el endpoint GraphQL único | Limitar por nombre de operación o campo raíz de la mutación (tarea 5.1) |
 | Compensaciones que fallan a medias | Compensaciones idempotentes y reintentadas, con estado persistido y reanudación (3.4–3.5) |
