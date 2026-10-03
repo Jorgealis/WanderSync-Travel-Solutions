@@ -1,0 +1,15 @@
+# El contexto de build es la raíz del repo (para poder copiar libs/common).
+# Todo lo que no necesita una imagen se excluye; en especial .env (secretos).
+.git
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/node_modules
+**/dist
+docs
+tests
+*.md

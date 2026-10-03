@@ -23,7 +23,7 @@ La idea es usar **Python en todo el backend**, porque Dask y Prefect son nativos
 | Base de datos | **PostgreSQL 16**: un esquema por servicio (`flights`, `hotels`, `cars`, `orders`, `auth`) y un usuario de BD por servicio con privilegios solo sobre su esquema | Aislamiento de datos por servicio (*database-per-service* lógico) sin multiplicar contenedores |
 | Capa GraphQL sobre la persistencia | **Hasura GraphQL Engine v2** sobre Postgres, con el catálogo en modo solo lectura | Cumple el requisito de "integración transparente con GraphQL" (equivale a Supabase/pg_graphql) y su consola sirve para la demo. *Alternativa:* imagen `supabase/postgres` con `pg_graphql` |
 | SAGA | **SAGA orquestada** dentro de `orders-service`: máquina de estados persistida (`saga_instances`, `saga_steps`), llamadas HTTP internas con `httpx`, idempotencia por `saga_id` y reintentos con `tenacity` | La orquestación se diagrama, se depura y se demuestra con más facilidad que la coreografía. El estado persistido permite reanudar la SAGA si el orquestador se cae |
-| Sesiones y rate limiting | **Redis 7** (sesiones del lado del servidor y contadores) + **slowapi/limits** | Permite regenerar el ID de sesión (contra Session Fixation) y aplicar rate limiting distribuido |
+| Sesiones y rate limiting | **Redis 7.4** (sesiones del lado del servidor y contadores) + **slowapi/limits** | Permite regenerar el ID de sesión (contra Session Fixation) y aplicar rate limiting distribuido |
 | Hashing de contraseñas | **argon2-cffi (Argon2id)** con `time_cost=3`, `memory_cost=64 MiB`, `parallelism=4` | Requisito de seguridad |
 | Fuentes de scraping | **`mock-providers`**: servicio FastAPI que sirve HTML con paginación, latencia aleatoria y errores 5xx/429 inyectables, que imitan a Kayak, Booking y Rentalcars. Opcional: una fuente real | Fuentes estables para la demo; los fallos inyectados demuestran los *retries* |
 | Scraping y parseo | **httpx + selectolax/BeautifulSoup4** y **pandas / dask.dataframe** para limpieza | Liviano y fácil de paralelizar |
@@ -148,15 +148,15 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 ### Fase 1 — Infraestructura base (Días 2–3)
 
 **Rol B**
-- [ ] **1.1** Escribir `docker-compose.yml` con `postgres`, `redis`, `hasura`, `dask-scheduler`, `dask-worker` (con réplicas), `prefect-server` y `prefect-worker`, todos con `healthcheck` y redes `frontend`/`backend`.
-- [ ] **1.2** Crear los scripts `infra/postgres/init/*.sql`: esquemas, un usuario por servicio con `GRANT` restringido, un usuario `ingest` con escritura en el catálogo y un usuario `hasura_ro` de solo lectura.
-- [ ] **1.3** Crear la imagen `data-pipeline/Dockerfile` (Python 3.12, dask, distributed, prefect, prefect-dask, httpx, selectolax, pandas, sqlalchemy, psycopg) y usar **las mismas versiones** en scheduler, workers y prefect-worker. *Si las versiones no coinciden, Dask falla.*
-- [ ] **1.4** Verificar el hito **H1**: `docker compose up` deja todo *healthy* sin pasos manuales.
+- [x] **1.1** Escribir `docker-compose.yml` con `postgres`, `redis`, `hasura`, `dask-scheduler`, `dask-worker` (con réplicas), `prefect-server` y `prefect-worker`, todos con `healthcheck` y redes `frontend`/`backend`.
+- [x] **1.2** Crear el script `infra/postgres/init/01-roles-and-schemas.sh`: esquemas, un usuario por servicio dueño de su esquema, los usuarios `ingest` y `hasura_ro` (este último de solo lectura) y las bases auxiliares de Hasura y Prefect. *Los `GRANT` por tabla y por columna para `ingest` y `hasura_ro` van en la primera migración Alembic de cada servicio de catálogo (2.8–2.10), porque las tablas aún no existen.*
+- [x] **1.3** Crear la imagen `data-pipeline/Dockerfile` (Python 3.12, dask, distributed, prefect, prefect-dask, httpx, selectolax, pandas, sqlalchemy, psycopg) y usar **las mismas versiones** en scheduler, workers y prefect-worker. *Si las versiones no coinciden, Dask falla.*
+- [x] **1.4** Verificar el hito **H1**: `docker compose up` deja todo *healthy* sin pasos manuales. ✅ Verificado el 2026-10-03: arranque limpio (`down -v` + `up`) en unos 90 s con los 14 contenedores *healthy*, y el flow de humo `flows/smoke.py` repartió sus tareas entre los 3 workers de Dask.
 
 **Rol A**
-- [ ] **1.5** Crear la **plantilla base de microservicio** FastAPI: config con pydantic-settings, conexión async a la BD, Alembic, `/health`, logging JSON con `correlation_id`, Dockerfile multi-stage con usuario no-root.
-- [ ] **1.6** Crear `libs/common`: middleware de `correlation_id`, cliente httpx con timeouts y reintentos, y utilidades de idempotencia.
-- [ ] **1.7** Hacer que las migraciones de Alembic corran al arrancar cada servicio (entrypoint `alembic upgrade head`), sin intervención manual.
+- [x] **1.5** Crear la **plantilla base de microservicio** FastAPI: config con pydantic-settings, conexión async a la BD, Alembic, `/health`, logging JSON con `correlation_id`, Dockerfile multi-stage con usuario no-root.
+- [x] **1.6** Crear `libs/common`: middleware de `correlation_id`, cliente httpx con timeouts y reintentos, y utilidades de idempotencia.
+- [x] **1.7** Hacer que las migraciones de Alembic corran al arrancar cada servicio (entrypoint `alembic upgrade head`), sin intervención manual.
 
 ### Fase 2 — Ingesta distribuida y servicios de dominio (Días 3–6)
 
