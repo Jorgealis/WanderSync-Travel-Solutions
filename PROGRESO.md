@@ -240,11 +240,11 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [ ] **2.12** **Deployment de Prefect** con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
 
 **Rol A — Servicios de dominio**
-- [ ] **2.13** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
-- [ ] **2.14** **hotels-service**: igual que 2.13 para habitaciones.
-- [ ] **2.15** **cars-service**: igual que 2.13 para vehículos.
-- [ ] **2.16** Agregar un **mecanismo de inyección de fallos** en cada servicio (header `X-Simulate-Failure` o flag de la SAGA), activo solo con `ENABLE_FAULT_INJECTION=true`.
-- [ ] **2.17** Escribir pruebas unitarias de la reserva y la cancelación: idempotencia, falta de cupo y doble cancelación.
+- [x] **2.13** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
+- [x] **2.14** **hotels-service**: igual que 2.13 para habitaciones.
+- [x] **2.15** **cars-service**: igual que 2.13 para vehículos.
+- [x] **2.16** Agregar un **mecanismo de inyección de fallos** en cada servicio (header `X-Simulate-Failure` o flag de la SAGA), activo solo con `ENABLE_FAULT_INJECTION=true`.
+- [x] **2.17** Escribir pruebas unitarias de la reserva y la cancelación: idempotencia, falta de cupo y doble cancelación. ✅ 2026-10-09: lógica común en `libs/common/wandersync_common/reservations.py`; batería de contrato de 14 pruebas (`wandersync_common/testing/reservation_contract.py`) que corre en los 3 servicios contra la BD real, incluidas concurrencia sin sobreventa y tombstones (42/42). Ejecutar: `python scripts/run_service_tests.py`. Permisos por columna verificados: `ingest` no puede modificar el inventario.
 
 ### Fase 3 — Patrón SAGA y capa GraphQL de datos (Días 6–8)
 

@@ -16,11 +16,18 @@ from wandersync_common.config import ServiceSettings
 from wandersync_common.db import engine_connect_args
 
 
+def _include_object(_object, name, type_, _reflected, _compare_to) -> bool:
+    # La tabla de versiones de Alembic vive en el esquema del servicio pero no está en
+    # los modelos: sin esto, autogenerate propone borrarla.
+    return not (type_ == "table" and name == "alembic_version")
+
+
 def run_migrations(target_metadata: MetaData, settings: ServiceSettings) -> None:
     configure_kwargs = {
         "target_metadata": target_metadata,
         "version_table_schema": settings.db_schema,
         "include_schemas": False,
+        "include_object": _include_object,
         "compare_type": True,
     }
 

@@ -267,39 +267,52 @@ services:
     build:
       context: .
       dockerfile: services/flights-service/Dockerfile
+      target: runtime
     environment:
       <<: *service-env
       DB_USER: ${FLIGHTS_DB_USER}
       DB_PASSWORD: ${FLIGHTS_DB_PASSWORD:?}
       ENABLE_FAULT_INJECTION: ${ENABLE_FAULT_INJECTION:-false}
+      # Roles a los que la migración concede permisos sobre el catálogo (modelo-datos.md)
+      INGEST_DB_USER: ${INGEST_DB_USER}
+      HASURA_RO_DB_USER: ${HASURA_RO_DB_USER}
 
   hotels-service:
     <<: *python-service
     build:
       context: .
       dockerfile: services/hotels-service/Dockerfile
+      target: runtime
     environment:
       <<: *service-env
       DB_USER: ${HOTELS_DB_USER}
       DB_PASSWORD: ${HOTELS_DB_PASSWORD:?}
       ENABLE_FAULT_INJECTION: ${ENABLE_FAULT_INJECTION:-false}
+      # Roles a los que la migración concede permisos sobre el catálogo (modelo-datos.md)
+      INGEST_DB_USER: ${INGEST_DB_USER}
+      HASURA_RO_DB_USER: ${HASURA_RO_DB_USER}
 
   cars-service:
     <<: *python-service
     build:
       context: .
       dockerfile: services/cars-service/Dockerfile
+      target: runtime
     environment:
       <<: *service-env
       DB_USER: ${CARS_DB_USER}
       DB_PASSWORD: ${CARS_DB_PASSWORD:?}
       ENABLE_FAULT_INJECTION: ${ENABLE_FAULT_INJECTION:-false}
+      # Roles a los que la migración concede permisos sobre el catálogo (modelo-datos.md)
+      INGEST_DB_USER: ${INGEST_DB_USER}
+      HASURA_RO_DB_USER: ${HASURA_RO_DB_USER}
 
   orders-service:
     <<: *python-service
     build:
       context: .
       dockerfile: services/orders-service/Dockerfile
+      target: runtime
     environment:
       <<: *service-env
       DB_USER: ${ORDERS_DB_USER}
@@ -311,6 +324,7 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
+      target: runtime
     environment:
       <<: *service-env
       DB_USER: ${AUTH_DB_USER}

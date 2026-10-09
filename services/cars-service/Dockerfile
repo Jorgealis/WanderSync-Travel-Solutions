@@ -33,3 +33,12 @@ USER app
 EXPOSE 8000
 
 ENTRYPOINT ["sh", "/app/entrypoint.sh"]
+
+# --- Etapa de pruebas (no se usa en producción): python scripts/run_service_tests.py ---
+FROM runtime AS test
+USER root
+COPY services/cars-service/requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
+USER app
+ENTRYPOINT []
+CMD ["pytest"]
