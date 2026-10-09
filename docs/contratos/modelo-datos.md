@@ -12,9 +12,9 @@ Además de la base `wandersync`, la instancia aloja dos bases auxiliares: `hasur
 | Fechas con hora | `TIMESTAMPTZ`, siempre en UTC |
 | Fechas sin hora | `DATE` (check-in, recogida de auto, etc.) |
 | Dinero | `NUMERIC(12,2)`. **Nunca `FLOAT`**. Todo el catálogo se normaliza a **USD** durante la ingesta; el precio tal como lo publicó la fuente se conserva en `price_original` + `currency_original` (trazabilidad del scraping) |
-| Origen de los datos | **Scraping real** de fuentes públicas (ver PROGRESO.md §1.4). `source` identifica la fuente: `google-flights`, etc. |
+| Origen de los datos | Fuentes públicas reales (ver PROGRESO.md §1.4): **scraping** de HTML (`google-flights`) o **API oficial** (`hotelbeds`). `source` identifica la fuente |
 | `external_id` | Identificador estable de la oferta dentro de su fuente. Si la fuente no publica uno, es un **hash SHA-1 de los campos que identifican la oferta** (definidos por catálogo más abajo). Junto con `source` es la llave del upsert |
-| Inventario | Las fuentes reales **no publican cupos**. WanderSync asigna el inventario inicial **solo al insertar** una oferta nueva (`INGEST_DEFAULT_SEATS`, `INGEST_DEFAULT_ROOMS`, `INGEST_DEFAULT_CARS`) y desde ahí lo gestiona la SAGA |
+| Inventario | El inventario inicial se fija **solo al insertar** una oferta nueva y desde ahí lo gestiona la SAGA. Si la fuente publica cupos (Hotelbeds: `allotment`) se usan; si no (Google Flights), se asignan `INGEST_DEFAULT_SEATS`, `INGEST_DEFAULT_ROOMS` o `INGEST_DEFAULT_CARS` |
 | Moneda | `CHAR(3)` ISO 4217, valor por defecto `'USD'` |
 | Ciudades y aeropuertos | `CHAR(3)` código IATA en mayúsculas (`BOG`, `MDE`, `CTG`…). Para hoteles y autos se usa el código IATA de la ciudad, así se cruzan con el destino del vuelo |
 | Auditoría | Todas las tablas tienen `created_at` y `updated_at` (`TIMESTAMPTZ NOT NULL DEFAULT now()`) |
@@ -96,35 +96,43 @@ Fuente: **Google Flights** (búsqueda solo ida por ruta y fecha).
 
 ### `hotels.room_offers` (catálogo)
 
-Una oferta representa una habitación en un hotel **para un rango de fechas concreto**, como en los resultados de un buscador de hoteles.
+Fuente: **Hotelbeds**, API oficial (entorno de evaluación). Ver [docs/fuentes/hotelbeds.md](../fuentes/hotelbeds.md).
 
-> ⚠️ **Provisional hasta la tarea 2.5** (evaluación de la fuente de hoteles). Los campos que la fuente elegida no publique pasarán a ser opcionales.
+Una oferta es **un tipo de habitación con un régimen** (solo alojamiento, desayuno…) en un hotel, **para un rango de fechas concreto**. De cada combinación se guarda la tarifa más barata.
 
 | Columna | Tipo | Restricciones | Notas |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `source` | VARCHAR(50) | NOT NULL | Por definir en la tarea 2.5 |
-| `external_id` | VARCHAR(100) | NOT NULL | ID de la fuente o hash de `hotel_name` + `city_code` + `room_type` + `check_in` + `check_out` |
+| `source` | VARCHAR(50) | NOT NULL | `hotelbeds` |
+| `external_id` | VARCHAR(100) | NOT NULL | `{código hotel}:{código habitación}:{código régimen}:{check_in}:{check_out}`, p. ej. `104915:DBL.SU:RO:2026-10-16:2026-10-19` |
+| `hotel_code` | VARCHAR(20) | NOT NULL | Código del hotel en la fuente (`104915`) |
 | `hotel_name` | VARCHAR(150) | NOT NULL | |
-| `city_code` | CHAR(3) | NOT NULL | IATA de la ciudad |
-| `address` | VARCHAR(255) | NULL | |
-| `stars` | SMALLINT | NOT NULL, 1–5 | |
-| `rating` | NUMERIC(3,1) | NULL, 0–10 | Puntaje de usuarios |
-| `room_type` | VARCHAR(50) | NOT NULL | `SINGLE` \| `DOUBLE` \| `TWIN` \| `SUITE` \| `FAMILY` |
-| `max_guests` | SMALLINT | NOT NULL, `> 0` | |
+| `city_code` | CHAR(3) | NOT NULL | Código de destino de Hotelbeds, que coincide con el IATA de la ciudad (`MDE`, `CTG`…) |
+| `zone_name` | VARCHAR(100) | NULL | Zona o barrio que informa la fuente |
+| `address` | VARCHAR(255) | NULL | La API de disponibilidad no la entrega |
+| `latitude`, `longitude` | NUMERIC(9,6) | NULL | Coordenadas del hotel |
+| `stars` | SMALLINT | NULL, 1–5 | Se extrae de la categoría (`5EST` → 5). NULL si la categoría no es de estrellas (hostales, apartamentos) |
+| `category_name` | VARCHAR(50) | NULL | Categoría original (`5 STARS`) |
+| `rating` | NUMERIC(3,1) | NULL, 0–10 | La fuente no lo entrega |
+| `room_code` | VARCHAR(30) | NOT NULL | Código de habitación de la fuente (`DBL.SU`) |
+| `room_name` | VARCHAR(150) | NOT NULL | Nombre de la habitación (`SUPERIOR ROOM`) |
+| `room_type` | VARCHAR(20) | NOT NULL | Derivado del prefijo del código: `SGL`→`SINGLE`, `DBL`→`DOUBLE`, `TWN`→`TWIN`, `SUI`/`JSU`→`SUITE`, `FAM`→`FAMILY`, otro→`OTHER` |
+| `board_code` | VARCHAR(10) | NOT NULL | Régimen (`RO`, `BB`…) |
+| `board_name` | VARCHAR(50) | NOT NULL | `ROOM ONLY`, `BED AND BREAKFAST`… |
+| `max_guests` | SMALLINT | NOT NULL, `> 0` | Adultos de la tarifa consultada |
 | `check_in` | DATE | NOT NULL | |
 | `check_out` | DATE | NOT NULL | `CHECK (check_out > check_in)` |
 | `nights` | SMALLINT | NOT NULL | Columna generada: `check_out - check_in` |
 | `price_per_night` | NUMERIC(12,2) | NOT NULL, `> 0` | USD |
-| `price_total` | NUMERIC(12,2) | NOT NULL | Precio **por habitación** del rango completo |
+| `price_total` | NUMERIC(12,2) | NOT NULL | Precio **por habitación** de toda la estadía, en USD |
 | `currency` | CHAR(3) | NOT NULL DEFAULT `'USD'` | |
-| `price_original` | NUMERIC(14,2) | NOT NULL, `> 0` | Precio total tal como lo publicó la fuente |
-| `currency_original` | CHAR(3) | NOT NULL | |
-| `rooms_total` | INT | NOT NULL, `> 0` | Asignado por WanderSync al insertar (`INGEST_DEFAULT_ROOMS`) |
+| `price_original` | NUMERIC(14,2) | NOT NULL, `> 0` | Tarifa neta total de la estadía tal como la publica la fuente |
+| `currency_original` | CHAR(3) | NOT NULL | `EUR` en el entorno de evaluación |
+| `rooms_total` | INT | NOT NULL, `> 0` | **Cupo real de la fuente** (`allotment`) al insertar; si no viene, `INGEST_DEFAULT_ROOMS` |
 | `rooms_available` | INT | NOT NULL, `>= 0`, `<= rooms_total` | **Inventario: solo lo modifica hotels-service** |
-| `scraped_at`, `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL | |
+| `scraped_at`, `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL | `scraped_at` = momento de la consulta a la API |
 
-- `UNIQUE (source, external_id)`; índice `(city_code, check_in, check_out)`.
+- `UNIQUE (source, external_id)`; índices `(city_code, check_in, check_out)` y `(hotel_code)`.
 
 ### `hotels.reservations`
 

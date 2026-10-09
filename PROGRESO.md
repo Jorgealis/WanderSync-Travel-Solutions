@@ -25,7 +25,7 @@ La idea es usar **Python en todo el backend**, porque Dask y Prefect son nativos
 | SAGA | **SAGA orquestada** dentro de `orders-service`: máquina de estados persistida (`saga_instances`, `saga_steps`), llamadas HTTP internas con `httpx`, idempotencia por `saga_id` y reintentos con `tenacity` | La orquestación se diagrama, se depura y se demuestra con más facilidad que la coreografía. El estado persistido permite reanudar la SAGA si el orquestador se cae |
 | Sesiones y rate limiting | **Redis 7.4** (sesiones del lado del servidor y contadores) + **slowapi/limits** | Permite regenerar el ID de sesión (contra Session Fixation) y aplicar rate limiting distribuido |
 | Hashing de contraseñas | **argon2-cffi (Argon2id)** con `time_cost=3`, `memory_cost=64 MiB`, `parallelism=4` | Requisito de seguridad |
-| Fuentes de scraping | **Fuentes públicas reales**, evaluadas una por una (ver §1.4). Sin datos simulados ni Faker | Requisito 3.1 del enunciado: capturar información real y actualizada de plataformas públicas |
+| Fuentes de datos | **Fuentes públicas reales**, evaluadas una por una (ver §1.4): scraping de HTML (Google Flights) y API oficial (Hotelbeds). Sin datos simulados ni Faker | Requisito 3.1 del enunciado: capturar información real y actualizada de plataformas públicas |
 | Scraping y parseo | **httpx + selectolax** (HTML renderizado en el servidor) y **pandas / dask.dataframe** para limpieza. *Playwright solo si una fuente lo exige y no implica saltarse protecciones* | Liviano y fácil de paralelizar en los workers de Dask |
 | Computación distribuida | **Dask Distributed**: 1 `dask-scheduler` y N `dask-worker` (escalables con `--scale`) y dashboard en `:8787` | Requisito obligatorio |
 | Orquestación y observabilidad | **Prefect 3**: `prefect-server` con UI en `:4200`, `prefect-worker` y **prefect-dask** (`DaskTaskRunner` apuntando al scheduler externo) | Requisito obligatorio: retries, schedules y monitoreo visual |
@@ -128,7 +128,18 @@ wandersync/
 | Vuelos | **Google Flights** (`/travel/flights?q=...`) | Permitido (solo prohíbe `/travel/flights/search` y `/travel/flights/s/`) | `200`, 55 vuelos en el HTML (precio COP, aerolínea, aeropuertos, horarios, duración). Validada el 2026-10-09: 21/21 búsquedas, 569 vuelos ([detalle](docs/fuentes/google-flights.md)) | ✅ **Elegida** | 2026-10-03 |
 | Vuelos/hoteles/autos | Kayak | **Prohíbe** `/flights/`, `/hotels/` y `/cars/` | — | ❌ Descartada | 2026-10-03 |
 | Hoteles | Booking.com | Permite `searchresults` | `202` con desafío anti-bot, sin datos | ❌ Descartada | 2026-10-03 |
-| Hoteles | *por evaluar (tarea 2.5)* | | | | |
+| Hoteles | Google Hotels (`/travel/hotels/{ciudad}`) | Permitido, pero **redirige a `/travel/search`, que está prohibido** | `200` con precios y estrellas en el HTML | ❌ Descartada por `robots.txt` (ruta final prohibida) | 2026-10-09 |
+| Hoteles | Despegar | **Prohíbe** `/search/hotels/` y `/accommodations/results/*` | Página de ciudad: `403` con CAPTCHA | ❌ Descartada | 2026-10-09 |
+| Hoteles | Hoteles.com | **Prohíbe** `/Hotel-Search` | — | ❌ Descartada | 2026-10-09 |
+| Hoteles | Trivago | **Prohíbe** `/*/srl?` (resultados) | — | ❌ Descartada | 2026-10-09 |
+| Hoteles | Hostelworld | **Prohíbe** `/search` | — | ❌ Descartada | 2026-10-09 |
+| Hoteles | TripAdvisor | Permite la página de ciudad | `403` con CAPTCHA | ❌ Descartada | 2026-10-09 |
+| Hoteles | Expedia | Sin respuesta | — | ❌ Descartada | 2026-10-09 |
+| Hoteles | **Agoda** (`/search?city=...&checkIn=...&los=...`) | Permitido (no restringe `/search`) | `200` pero el HTML es una aplicación JavaScript sin datos; **en un navegador real muestra resultados con fecha y precios en COP, sin CAPTCHA** | ❌ Descartada por decisión del equipo: requiere un navegador automatizado (Playwright) | 2026-10-09 |
+| Hoteles | Bing, Viajes Falabella, Airbnb | **Prohíben** `/hotels/search`, `/search/` y `/s/*/*` | — | ❌ Descartadas | 2026-10-09 |
+| Hoteles | PriceTravel, Almundo, HotelsCombined | Sin respuesta | — | ❌ Descartadas | 2026-10-09 |
+| Hoteles | Amadeus Self-Service (API) | — | Portal cerrado el 2026-07-17 | ❌ Descartada | 2026-10-09 |
+| Hoteles | **Hotelbeds** — API oficial, entorno de evaluación (servidores idénticos a producción, 50 peticiones/día) | No aplica: API documentada con claves propias | `200`: destinos de Colombia con códigos IATA y **67 hoteles reales en Medellín** con estrellas, habitaciones, régimen, precio (EUR) y cupos ([detalle](docs/fuentes/hotelbeds.md)) | ✅ **Elegida** (API oficial, no scraping) | 2026-10-09 |
 | Autos | *por evaluar (tarea 2.7)* | | | | |
 
 **Impacto en el modelo de datos.** Las fuentes reales no publican cupos (asientos, habitaciones ni autos disponibles). El **inventario inicial lo asigna WanderSync** al insertar una oferta nueva (valor configurable) y desde ese momento lo gestiona la SAGA. Además, los precios llegan en COP y se normalizan a USD.
@@ -198,12 +209,13 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - guarda una página real en `tests/fixtures/` y prueba el parser sin red (pytest)
   - prueba manual: una ruta (BOG→MDE) impresa por consola
 - [x] **2.4** Validar el scraper de Google Flights en varias rutas y fechas (`INGEST_ROUTES`) y documentar sus límites: formato, campos que faltan y cambios de idioma o moneda. ✅ 2026-10-09: 21/21 búsquedas, 569 vuelos, 0 descartes, 0 anomalías. Límites en [docs/fuentes/google-flights.md](docs/fuentes/google-flights.md); revalidar con `python -m tools.validate_google_flights`.
-- [ ] **2.5** **Fuente 2 — evaluar fuentes de hoteles** con el mismo procedimiento que 2.1 (candidata inicial: Google Hotels) y registrar el resultado en §1.4.
-- [ ] **2.6** **Scraper de hoteles** sobre la fuente elegida en 2.5, con el mismo nivel de pruebas que 2.3.
+- [x] **2.5** **Fuente 2 — evaluar fuentes de hoteles** con el mismo procedimiento que 2.1 (candidata inicial: Google Hotels) y registrar el resultado en §1.4. ✅ 2026-10-09: 15 fuentes evaluadas; ninguna permite scraping con fechas sin incumplir la política. Elegida **Hotelbeds (API oficial)**. Contrato de hoteles ajustado a sus datos reales; ficha en [docs/fuentes/hotelbeds.md](docs/fuentes/hotelbeds.md).
+- [ ] **2.6** **Cliente de Hotelbeds** (`scrapers/hotelbeds.py`) con el mismo nivel de pruebas que 2.3: firma de las peticiones, consulta por ciudad × fecha × estadía, una oferta por hotel + habitación + régimen (la tarifa más barata), `allotment` como inventario inicial, **contador de cuota diaria (50/día)** que se detiene antes de agotarla, y `INGEST_STAY_NIGHTS=3,5` (30 peticiones por ejecución diaria; ver plan de cuota en la ficha).
 - [ ] **2.7** **Fuente 3 — evaluar fuentes de alquiler de autos** y registrar el resultado en §1.4. *Es la más difícil: Google no tiene búsqueda de autos.* Si ninguna fuente es viable sin saltarse protecciones, se documenta y **se decide con el equipo** antes de seguir.
 - [ ] **2.8** **Scraper de autos** sobre la fuente elegida en 2.7.
 - [ ] **2.9** **Limpieza y normalización** paralelizable con `dask.bag`/`dask.dataframe`:
-  - conversión COP → USD (tasa configurable o de una fuente pública de TRM)
+  - conversión COP → USD (vuelos) y EUR → USD (hoteles), con tasa configurable o de una fuente pública
+  - descarte de precios fuera de rango (en Hotelbeds apareció un hotel "desde 497.102 EUR")
   - fechas a ISO/UTC y deduplicación por `(source, external_id)`
   - validación con Pydantic; los registros inválidos se descartan y se cuentan
 - [ ] **2.10** **Persistencia por lotes**: upsert `ON CONFLICT DO UPDATE` que **nunca** modifica el inventario; el inventario inicial se asigna solo al insertar una oferta nueva.
@@ -346,6 +358,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 | Riesgo | Mitigación |
 |---|---|
 | Versiones distintas de Dask entre el cliente (Prefect) y los workers | Una sola imagen `data-pipeline` para scheduler, workers y prefect-worker (tarea 1.3) |
+| Se agota la cuota de Hotelbeds (50 peticiones/día) | Ingesta de hoteles diaria con contador propio, que se detiene antes del límite; el catálogo conserva los hoteles del día anterior |
 | Una fuente real bloquea las peticiones o cambia su HTML | Detección de bloqueo sin reintentos agresivos; el catálogo conserva los últimos datos válidos; pruebas del parser con HTML guardado (`tests/fixtures/`) para detectar el cambio |
 | La fuente falla justo durante la demo | Ejecutar y validar una ingesta antes de la sustentación; el catálogo ya poblado permite seguir con la SAGA aunque la fuente no responda |
 | No existe fuente real viable para algún catálogo (por ejemplo, autos) | Se documenta en §1.4 y se decide con el equipo (tarea 2.7) antes de invertir tiempo |

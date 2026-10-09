@@ -40,6 +40,8 @@ enum RoomType {
   TWIN
   SUITE
   FAMILY
+  "Tipo que la fuente no permite clasificar; ver `roomName`"
+  OTHER
 }
 
 enum CarCategory {
@@ -92,13 +94,23 @@ type FlightOffer {
 
 type HotelOffer {
   id: ID!
+  "Fuente real de la que se obtuvo la oferta, p. ej. hotelbeds"
   source: String!
   hotelName: String!
   cityCode: String!
+  zoneName: String
   address: String
-  stars: Int!
+  latitude: Float
+  longitude: Float
+  "Null si la categoría del hotel no es de estrellas (hostales, apartamentos)"
+  stars: Int
+  categoryName: String
   rating: Float
   roomType: RoomType!
+  "Nombre de la habitación según la fuente, p. ej. SUPERIOR ROOM"
+  roomName: String!
+  "Régimen, p. ej. ROOM ONLY o BED AND BREAKFAST"
+  boardName: String!
   maxGuests: Int!
   checkIn: Date!
   checkOut: Date!
