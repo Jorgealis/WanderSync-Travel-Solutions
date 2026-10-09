@@ -140,7 +140,16 @@ wandersync/
 | Hoteles | PriceTravel, Almundo, HotelsCombined | Sin respuesta | — | ❌ Descartadas | 2026-10-09 |
 | Hoteles | Amadeus Self-Service (API) | — | Portal cerrado el 2026-07-17 | ❌ Descartada | 2026-10-09 |
 | Hoteles | **Hotelbeds** — API oficial, entorno de evaluación (servidores idénticos a producción, 50 peticiones/día) | No aplica: API documentada con claves propias | `200`: destinos de Colombia con códigos IATA y **67 hoteles reales en Medellín** con estrellas, habitaciones, régimen, precio (EUR) y cupos ([detalle](docs/fuentes/hotelbeds.md)) | ✅ **Elegida** (API oficial, no scraping) | 2026-10-09 |
-| Autos | *por evaluar (tarea 2.7)* | | | | |
+| Autos | APIs oficiales | — | Amadeus cerró en julio de 2026; Hotelbeds no ofrece autos; no se encontró otra con registro abierto | ❌ | 2026-10-09 |
+| Autos | Rentalcars | **Prohíbe** `/search*` y `/SearchResults*` | — | ❌ Descartada | 2026-10-09 |
+| Autos | Discover Cars | **Prohíbe** `*/search/*` y `*/search-result*` | — | ❌ Descartada | 2026-10-09 |
+| Autos | Despegar (autos) | **Prohíbe** `/cars/shop/` | — | ❌ Descartada | 2026-10-09 |
+| Autos | Economy Bookings | `403` al pedir `robots.txt` | — | ❌ Descartada | 2026-10-09 |
+| Autos | Hertz, Avis, Europcar (Colombia) | Sin respuesta | — | ❌ Descartadas | 2026-10-09 |
+| Autos | Rentcars | Permite la búsqueda (solo prohíbe reservas y cuenta) | `403` con desafío de Cloudflare | ❌ Descartada | 2026-10-09 |
+| Autos | **Localiza** (Colombia) | Permite todo salvo el login; publica `sitemap` con 129 URLs | Páginas de agencia por ciudad: `200`, sin anti-bot, pero **sin vehículos ni precios**: solo el formulario de búsqueda. Las "ofertas" son promociones, no tarifas con fecha | ❌ Descartada: una búsqueda real desde un navegador (MDE, 16→19 oct) respondió *"Falla al cargar las informaciones"*; los resultados dependen de JavaScript (la URL no cambia) y la página reporta a **Akamai Bot Manager** (POST repetidos a una ruta ofuscada). No se reintentó | 2026-10-09 |
+
+**Decisión para autos (2026-10-09).** Ninguna de las 10 fuentes de autos evaluadas es viable sin incumplir la política. El enunciado (sección 3.1) permite explícitamente *"servicios mockeados que simulen la complejidad de dichas fuentes"*, así que los autos usarán una **fuente simulada**, servida por HTTP e ingerida con el mismo pipeline (Dask + Prefect + reintentos). Así el proyecto combina tres tipos de fuente: **scraping de HTML** (vuelos), **API oficial** (hoteles) y **servicio simulado** (autos).
 
 **Impacto en el modelo de datos.** Las fuentes reales no publican cupos (asientos, habitaciones ni autos disponibles). El **inventario inicial lo asigna WanderSync** al insertar una oferta nueva (valor configurable) y desde ese momento lo gestiona la SAGA. Además, los precios llegan en COP y se normalizan a USD.
 
@@ -211,8 +220,11 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [x] **2.4** Validar el scraper de Google Flights en varias rutas y fechas (`INGEST_ROUTES`) y documentar sus límites: formato, campos que faltan y cambios de idioma o moneda. ✅ 2026-10-09: 21/21 búsquedas, 569 vuelos, 0 descartes, 0 anomalías. Límites en [docs/fuentes/google-flights.md](docs/fuentes/google-flights.md); revalidar con `python -m tools.validate_google_flights`.
 - [x] **2.5** **Fuente 2 — evaluar fuentes de hoteles** con el mismo procedimiento que 2.1 (candidata inicial: Google Hotels) y registrar el resultado en §1.4. ✅ 2026-10-09: 15 fuentes evaluadas; ninguna permite scraping con fechas sin incumplir la política. Elegida **Hotelbeds (API oficial)**. Contrato de hoteles ajustado a sus datos reales; ficha en [docs/fuentes/hotelbeds.md](docs/fuentes/hotelbeds.md).
 - [x] **2.6** **Cliente de Hotelbeds** (`scrapers/hotelbeds.py` + `scrapers/quota.py`). ✅ 2026-10-09: en vivo, CTG devolvió 68 hoteles y 326 ofertas sin descartes; 24 pruebas nuevas sin red (51 en total). El contador de cuota vive en el volumen `ingest-state`, compartido por todos los workers. Detalle de la tarea: con el mismo nivel de pruebas que 2.3: firma de las peticiones, consulta por ciudad × fecha × estadía, una oferta por hotel + habitación + régimen (la tarifa más barata), `allotment` como inventario inicial, **contador de cuota diaria (50/día)** que se detiene antes de agotarla, y `INGEST_STAY_NIGHTS=3,5` (30 peticiones por ejecución diaria; ver plan de cuota en la ficha).
-- [ ] **2.7** **Fuente 3 — evaluar fuentes de alquiler de autos** y registrar el resultado en §1.4. *Es la más difícil: Google no tiene búsqueda de autos.* Si ninguna fuente es viable sin saltarse protecciones, se documenta y **se decide con el equipo** antes de seguir.
-- [ ] **2.8** **Scraper de autos** sobre la fuente elegida en 2.7.
+- [x] **2.7** **Fuente 3 — evaluar fuentes de alquiler de autos** y registrar el resultado en §1.4. *Es la más difícil: Google no tiene búsqueda de autos.* Si ninguna fuente es viable sin saltarse protecciones, se documenta y **se decide con el equipo** antes de seguir.
+- [ ] **2.8** **Fuente simulada de autos** (decisión de 2.7) y su cliente, con el mismo nivel de pruebas que 2.3:
+  - servicio `mock-car-rental` en Docker Compose que sirve resultados por ciudad y fechas (`MDE`, `CTG`, `SMR`, `BOG`, `ADZ`), con **complejidad de fuente real**: paginación, formatos de precio y fecha variables, campos faltantes, duplicados, latencia y fallos 5xx/429 configurables
+  - datos verosímiles: modelos y categorías de autos reales del mercado colombiano, pero **empresas arrendadoras ficticias** (no se atribuyen precios inventados a marcas reales) y `source = wandersync-mock-cars`, declarado como simulado en el documento técnico
+  - cliente `scrapers/mock_car_rental.py` con el mismo `PoliteClient` y la misma clasificación de errores
 - [ ] **2.9** **Limpieza y normalización** paralelizable con `dask.bag`/`dask.dataframe`:
   - conversión COP → USD (vuelos) y EUR → USD (hoteles), con tasa configurable o de una fuente pública
   - descarte de precios fuera de rango (en Hotelbeds apareció un hotel "desde 497.102 EUR")
