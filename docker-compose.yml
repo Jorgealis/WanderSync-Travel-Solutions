@@ -72,6 +72,7 @@ x-data-pipeline: &data-pipeline
   build:
     context: .
     dockerfile: data-pipeline/Dockerfile
+    target: runtime   # la etapa `test` (pytest) no entra en la imagen de ejecución
   image: wandersync/data-pipeline:local
   restart: unless-stopped
   networks: [backend]

@@ -30,3 +30,13 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app data-pipeline/ /app/
 
 USER app
+
+# --- Etapa de pruebas (no se usa en producción) --------------------------------
+#   docker build -f data-pipeline/Dockerfile --target test -t wandersync/data-pipeline:test .
+#   docker run --rm wandersync/data-pipeline:test
+FROM runtime AS test
+USER root
+COPY data-pipeline/requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
+USER app
+CMD ["pytest"]

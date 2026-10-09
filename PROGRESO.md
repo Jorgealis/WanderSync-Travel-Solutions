@@ -190,7 +190,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - [schema.graphql](docs/contratos/schema.graphql): `flightNumber` opcional y `stops`
   - [.env.example](.env.example) y `docker-compose.yml`: quitar `MOCK_*` (incluido `MOCK_PROVIDERS_URL` en `dask-worker` y `prefect-worker`) e `INGEST_MAX_PAGES`; bajar `INGEST_SCHEDULE_CRON` de cada 10 min a cada hora; agregar `SCRAPER_*` (pausa entre peticiones, máximo de peticiones por ejecución, User-Agent, tasa de fallos simulados para la demo, inventario inicial)
   - [CONTRIBUTING.md](CONTRIBUTING.md): cambiar el ámbito de commit `mock` por `scraper`
-- [ ] **2.3** **Fuente 1 — scraper de Google Flights** (`scrapers/google_flights.py`):
+- [x] **2.3** **Fuente 1 — scraper de Google Flights** (`scrapers/google_flights.py` + `scrapers/base.py`). ✅ 2026-10-09: 27 pruebas sin red pasan; en vivo, BOG→MDE devolvió 50 vuelos reales. Pruebas: `docker build -f data-pipeline/Dockerfile --target test -t wandersync/data-pipeline:test . && docker run --rm wandersync/data-pipeline:test`.
   - descarga solo ida por ruta y fecha (agregar `one way` a la consulta), con pausa entre peticiones y límite por ejecución
   - enviar un User-Agent de navegador: con el de httpx por defecto, Google redirige a `/travel/flights/unsupported` y no entrega vuelos (comprobado el 2026-10-03)
   - extracción de aerolínea, operador, aeropuertos, salida, llegada, duración, escalas y precio
