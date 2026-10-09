@@ -23,7 +23,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DASK_TEMPORARY_DIRECTORY=/tmp/dask
 
 # Prefect y Dask necesitan un HOME escribible para su estado local.
-RUN groupadd --system app && useradd --system --gid app --create-home app
+# /var/lib/wandersync: estado compartido de la ingesta (p. ej. cuota diaria de Hotelbeds).
+# Al montar el volumen `ingest-state` por primera vez, Docker copia este directorio con su dueño.
+RUN groupadd --system app && useradd --system --gid app --create-home app     && mkdir -p /var/lib/wandersync && chown app:app /var/lib/wandersync
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv

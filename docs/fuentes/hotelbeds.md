@@ -64,7 +64,23 @@ Ejemplo real:
 | **Categorías que no son de estrellas** | Hostales o apartamentos sin número de estrellas | `stars` NULL y `category_name` con el texto original |
 | **Precio por estadía, no por noche** | `net` es el total del rango de fechas | `price_per_night = price_total / nights` |
 
-## Plan de cuota (para la tarea 2.6)
+## Implementación (tarea 2.6)
+
+| Pieza | Archivo | Detalle |
+|---|---|---|
+| Cliente | [`scrapers/hotelbeds.py`](../../data-pipeline/scrapers/hotelbeds.py) | `POST /hotel-api/1.0/hotels` firmado; una oferta por hotel + habitación + régimen, con la tarifa más barata |
+| Cuota | [`scrapers/quota.py`](../../data-pipeline/scrapers/quota.py) | Contador diario (UTC) en el volumen `ingest-state`, compartido por todos los workers y protegido con un bloqueo de archivo. Se reserva **antes** de cada petición; al llegar a `HOTELBEDS_DAILY_BUDGET` (45) lanza `DailyQuotaExceeded` sin llamar a la API |
+| Pruebas | [`tests/test_hotelbeds.py`](../../data-pipeline/tests/test_hotelbeds.py), [`tests/test_quota.py`](../../data-pipeline/tests/test_quota.py) | Respuesta real reducida (CTG, 68 hoteles), firma, errores 401, cuota agotada y cambio de día |
+
+Uso manual (consume 1 petición): `docker compose run --rm --no-deps prefect-worker python -m scrapers.hotelbeds CTG 2026-10-16 3`
+
+### Variedad observada en la respuesta real (CTG, 2026-10-09)
+
+- **68 hoteles, 326 ofertas, 0 tarifas descartadas**, todas en EUR y todas con `allotment`.
+- **Categorías:** `5EST`, `4EST`, `3EST`, `2EST`, `5LUX`, `H4_5` ("4 STARS AND A HALF" → 4), `H3_5`, `APTH3` ("APARTHOTEL 3*" → 3), `BOU` (boutique → sin estrellas) y `SPC` (sin categoría oficial → sin estrellas).
+- **Prefijos de habitación:** `DBL`, `SUI`, `TWN`, `JSU`, `FAM` (tipos conocidos) y `ROO`, `TPL`, `QUA`, `STU`, `APT`, `BUN`, `DBT`, `CTG` (→ `OTHER`, con el nombre original en `room_name`).
+
+## Plan de cuota
 
 Ciudades destino de `INGEST_ROUTES`: **MDE, CTG, SMR, BOG, ADZ** (5).
 

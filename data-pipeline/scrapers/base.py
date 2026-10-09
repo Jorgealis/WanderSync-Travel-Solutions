@@ -18,6 +18,7 @@ import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -114,6 +115,12 @@ class PoliteClient:
         )
 
     def get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
+        return self.request("GET", url, params=params)
+
+    def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("POST", url, **kwargs)
+
+    def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         if self.requests_made >= self.settings.max_requests_per_run:
             raise RequestBudgetExceeded(
                 f"Límite de {self.settings.max_requests_per_run} peticiones por ejecución alcanzado"
@@ -125,7 +132,7 @@ class PoliteClient:
         self._wait_turn()
         self.requests_made += 1
         try:
-            response = self._client.get(url, params=params)
+            response = self._client.request(method, url, **kwargs)
         except httpx.TransportError as exc:  # incluye timeouts
             raise TransientSourceError(f"{type(exc).__name__}: {exc}") from exc
         finally:
@@ -151,7 +158,9 @@ class PoliteClient:
                 "La fuente marcó el cliente como navegador no compatible: revisar SCRAPER_USER_AGENT"
             )
         if response.status_code == 429:
-            raise SourceBlockedError("HTTP 429: la fuente pide reducir el ritmo de peticiones")
+            raise SourceBlockedError("HTTP 429: la fuente pide reducir el ritmo de peticiones o se agotó su cuota")
+        if response.status_code in (401, 403) and "json" in response.headers.get("content-type", ""):
+            raise SourceBlockedError(f"HTTP {response.status_code}: credenciales rechazadas por la API")
         if response.status_code >= 500:
             raise TransientSourceError(f"HTTP {response.status_code} de la fuente")
         if response.status_code >= 400:
