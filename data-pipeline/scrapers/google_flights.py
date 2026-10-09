@@ -128,11 +128,23 @@ def parse(
     pudo interpretar (síntoma de que Google cambió el formato). Las etiquetas sueltas
     que no se entienden se omiten.
     """
+    records, _failures = parse_with_report(page_html, origin, destination, departure_date, scraped_at)
+    return records
+
+
+def parse_with_report(
+    page_html: str,
+    origin: str,
+    destination: str,
+    departure_date: date,
+    scraped_at: datetime | None = None,
+) -> tuple[list[FlightRecord], list[str]]:
+    """Igual que `parse`, pero devuelve también el motivo de cada etiqueta descartada."""
     scraped_at = scraped_at or datetime.now(timezone.utc)
     labels = extract_labels(page_html)
     if not labels:
         if _RESULTS_TITLE.match(page_title(page_html)):
-            return []  # página de resultados válida, pero sin vuelos ese día
+            return [], []  # página de resultados válida, pero sin vuelos ese día
         raise ParseError(f"No es una página de resultados de vuelos (título: {page_title(page_html)!r})")
 
     records: dict[str, FlightRecord] = {}
@@ -150,7 +162,7 @@ def parse(
 
     if not records:
         raise ParseError(f"Ninguna de las {len(labels)} etiquetas se pudo interpretar: {failures[:3]}")
-    return list(records.values())
+    return list(records.values()), failures
 
 
 def parse_label(

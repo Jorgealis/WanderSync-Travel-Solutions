@@ -125,7 +125,7 @@ wandersync/
 
 | Catálogo | Fuente | `robots.txt` | Respuesta a una petición | Veredicto | Fecha |
 |---|---|---|---|---|---|
-| Vuelos | **Google Flights** (`/travel/flights?q=...`) | Permitido (solo prohíbe `/travel/flights/search` y `/travel/flights/s/`) | `200`, 55 vuelos en el HTML (precio COP, aerolínea, aeropuertos, horarios, duración) | ✅ **Elegida** | 2026-10-03 |
+| Vuelos | **Google Flights** (`/travel/flights?q=...`) | Permitido (solo prohíbe `/travel/flights/search` y `/travel/flights/s/`) | `200`, 55 vuelos en el HTML (precio COP, aerolínea, aeropuertos, horarios, duración). Validada el 2026-10-09: 21/21 búsquedas, 569 vuelos ([detalle](docs/fuentes/google-flights.md)) | ✅ **Elegida** | 2026-10-03 |
 | Vuelos/hoteles/autos | Kayak | **Prohíbe** `/flights/`, `/hotels/` y `/cars/` | — | ❌ Descartada | 2026-10-03 |
 | Hoteles | Booking.com | Permite `searchresults` | `202` con desafío anti-bot, sin datos | ❌ Descartada | 2026-10-03 |
 | Hoteles | *por evaluar (tarea 2.5)* | | | | |
@@ -197,7 +197,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - **detección de bloqueo**: si llega un CAPTCHA o desafío, se lanza un error específico, **sin reintentar contra la fuente**
   - guarda una página real en `tests/fixtures/` y prueba el parser sin red (pytest)
   - prueba manual: una ruta (BOG→MDE) impresa por consola
-- [ ] **2.4** Validar el scraper de Google Flights en varias rutas y fechas (`INGEST_ROUTES`) y documentar sus límites: formato, campos que faltan y cambios de idioma o moneda.
+- [x] **2.4** Validar el scraper de Google Flights en varias rutas y fechas (`INGEST_ROUTES`) y documentar sus límites: formato, campos que faltan y cambios de idioma o moneda. ✅ 2026-10-09: 21/21 búsquedas, 569 vuelos, 0 descartes, 0 anomalías. Límites en [docs/fuentes/google-flights.md](docs/fuentes/google-flights.md); revalidar con `python -m tools.validate_google_flights`.
 - [ ] **2.5** **Fuente 2 — evaluar fuentes de hoteles** con el mismo procedimiento que 2.1 (candidata inicial: Google Hotels) y registrar el resultado en §1.4.
 - [ ] **2.6** **Scraper de hoteles** sobre la fuente elegida en 2.5, con el mismo nivel de pruebas que 2.3.
 - [ ] **2.7** **Fuente 3 — evaluar fuentes de alquiler de autos** y registrar el resultado en §1.4. *Es la más difícil: Google no tiene búsqueda de autos.* Si ninguna fuente es viable sin saltarse protecciones, se documenta y **se decide con el equipo** antes de seguir.
