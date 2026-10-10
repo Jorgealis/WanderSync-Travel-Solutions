@@ -72,6 +72,8 @@ x-ingest-env: &ingest-env
   HOTELBEDS_BASE_URL: ${HOTELBEDS_BASE_URL:-https://api.test.hotelbeds.com}
   HOTELBEDS_DAILY_BUDGET: ${HOTELBEDS_DAILY_BUDGET:-45}
   HOTELBEDS_MIN_DELAY_SECONDS: ${HOTELBEDS_MIN_DELAY_SECONDS:-1}
+  MOCK_CARS_URL: ${MOCK_CARS_URL:-http://mock-car-rental:8000}
+  PREFECT_API_URL: ${PREFECT_API_URL:-http://prefect-server:4200/api}
 
 # Imagen común de Dask + Prefect (tarea 1.3).
 x-data-pipeline: &data-pipeline
@@ -256,6 +258,25 @@ services:
         condition: service_healthy
       dask-scheduler:
         condition: service_healthy
+
+  # Fuente SIMULADA de autos (decisión de la tarea 2.7; sección 3.1 del enunciado).
+  mock-car-rental:
+    build:
+      context: .
+      dockerfile: services/mock-car-rental/Dockerfile
+    restart: unless-stopped
+    networks: [backend]
+    environment:
+      MOCK_CARS_SEED: ${MOCK_CARS_SEED:-42}
+      MOCK_CARS_PAGE_SIZE: ${MOCK_CARS_PAGE_SIZE:-8}
+      MOCK_CARS_FAILURE_RATE: ${MOCK_CARS_FAILURE_RATE:-0.1}
+      MOCK_CARS_SLOW_RATE: ${MOCK_CARS_SLOW_RATE:-0.03}
+      MOCK_CARS_SLOW_SECONDS: ${MOCK_CARS_SLOW_SECONDS:-30}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ===========================================================================
   # Microservicios (plantilla x-python-service). Cada uno recibe SOLO las
