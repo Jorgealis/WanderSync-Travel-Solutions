@@ -20,6 +20,10 @@ services:
       - "127.0.0.1:${HASURA_HOST_PORT:-8080}:8080"
     environment:
       HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+      # La consola consulta /v1alpha1/config al cargar; en producción esa API sigue apagada.
+      HASURA_GRAPHQL_ENABLED_APIS: graphql,metadata,config
+      # Archivos de la consola desde la propia imagen (sin depender del CDN de Hasura ni de Internet).
+      HASURA_GRAPHQL_CONSOLE_ASSETS_DIR: /srv/console-assets
 
   # API Gateway directo (sin pasar por Nginx), p. ej. para `npm run dev` en el frontend.
   api-gateway:
