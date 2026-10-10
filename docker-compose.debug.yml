@@ -3,12 +3,19 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
 #
-# Publica la consola de Hasura en 127.0.0.1 para inspeccionar el catálogo durante
+# Publica Postgres, la consola de Hasura y el API Gateway en 127.0.0.1 para inspeccionar el catálogo durante
 # el desarrollo o la sustentación. Por defecto (solo docker-compose.yml) Hasura no
 # publica puertos y la consola está desactivada (tarea 3.9).
 # =============================================================================
 services:
+  # Postgres para DBeaver/psql. `backend` es interna (no publica puertos): se agrega `edge`.
+  postgres:
+    networks: [backend, edge]
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+
   hasura:
+    networks: [backend, edge]
     ports:
       - "127.0.0.1:${HASURA_HOST_PORT:-8080}:8080"
     environment:

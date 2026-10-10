@@ -8,6 +8,7 @@ structlog==26.1.0
 httpx==0.28.1
 tenacity==9.1.4
 redis==6.4.0
-strawberry-graphql[fastapi]==0.287.3
-# Strawberry 0.287 no es compatible con graphql-core 3.3 (ImportError de ExecutionContext).
-graphql-core==3.2.13
+# 0.332.1: corrige 5 vulnerabilidades de 0.287.3 (auditoría de la tarea 5.5).
+strawberry-graphql[fastapi]==0.332.1
+# Strawberry 0.332 exige graphql-core 3.3.x (la 0.287 anterior, en cambio, fallaba con 3.3).
+graphql-core==3.3.0

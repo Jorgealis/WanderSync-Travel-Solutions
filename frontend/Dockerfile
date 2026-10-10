@@ -12,6 +12,10 @@ RUN npm run build
 
 # --- Etapa 2: Nginx sin root sirviendo los estáticos --------------------------
 FROM nginxinc/nginx-unprivileged:1.31.6-alpine AS runtime
+# Parches de seguridad de Alpine publicados después de la imagen base (p. ej. tiff, zlib).
+USER root
+RUN apk upgrade --no-cache
+USER 101
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 EXPOSE 8080
