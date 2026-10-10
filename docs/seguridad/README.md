@@ -46,7 +46,7 @@ sequenceDiagram
     A->>R: DEL session:X (la sesión anterior deja de existir)
     A->>R: SET session:Y (Y = secrets.token_urlsafe(32), TTL inactividad 30 min)
     A-->>G: {session_id: Y}
-    G-->>B: Set-Cookie ws_session=Y; HttpOnly; SameSite=Strict; Max-Age=8h
+    G-->>B: Set-Cookie ws_session=Y · HttpOnly · SameSite=Strict · Max-Age=8h
 ```
 
 - **Session Fixation**: el ID nunca lo elige el cliente. En cada login se crea uno nuevo con

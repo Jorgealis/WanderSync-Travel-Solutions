@@ -75,7 +75,6 @@ La idea es usar **Python en todo el backend**, porque Dask y Prefect son nativos
 wandersync/
 ├── docker-compose.yml
 ├── .env.example
-├── Makefile                      # atajos: up, down, seed, test, audit, demo-fail
 ├── services/
 │   ├── api-gateway/              # Strawberry GraphQL
 │   ├── auth-service/
@@ -105,13 +104,13 @@ wandersync/
 
 | Servicio | Puerto host |
 |---|---|
-| frontend | 3000 |
-| api-gateway (`/graphql`) | 8000 |
-| Hasura console | 8080 |
+| frontend (y `/graphql`, reenviado por Nginx al gateway) | 3000 |
 | Prefect UI | 4200 |
 | Dask dashboard | 8787 |
-| Postgres | 5432 (solo en desarrollo) |
-| Servicios internos | sin publicar; solo red interna `backend` |
+| api-gateway directo, consola de Hasura, Postgres | 8000, 8080, 5432 — **solo** con `docker-compose.debug.yml` |
+| Servicios internos | sin publicar; red interna `backend` (`internal: true`) |
+
+Todos los puertos se publican en `127.0.0.1` (tarea 5.7).
 
 ### 1.4 Fuentes de datos: scraping real
 
@@ -165,7 +164,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 | **H1 — Infra base (día 3)** | `docker compose up` levanta Postgres, Redis, Hasura, Dask y Prefect con healthchecks | Servicios de A sobre la infraestructura real |
 | **H2 — Catálogo poblado (día 7)** ✅ 2026-10-10 | El flow Prefect+Dask llena las tablas de catálogo **con datos reales** de las fuentes elegidas | Búsqueda en el gateway y en el frontend |
 | **H3 — SAGA funcional (día 8)** ✅ 2026-10-10 | Mutación `bookPackage` con *happy path* y compensaciones | Checkout en el frontend |
-| **H4 — Code freeze (día 12)** | Todo integrado, seguridad aplicada | Auditoría final, documentación y grabación de la demo |
+| **H4 — Code freeze (día 12)** ✅ 2026-10-10 | Todo integrado, seguridad aplicada | Auditoría final, documentación y grabación de la demo |
 
 ---
 
@@ -311,31 +310,31 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 
 ### Fase 6 — Integración y pruebas end-to-end (Días 11–12) · *A+B*
 
-- [ ] **6.1 (A+B)** Probar el arranque limpio con `docker compose down -v && docker compose up --build`: todo debe levantar sin intervención manual, con migraciones, metadata de Hasura, deployment de Prefect y una primera ingesta real.
+- [~] **6.1 (A+B)** ⏳ Pendiente de autorización: borrar los volúmenes de datos (`down -v`) elimina el catálogo real ingerido y la cuota de Hotelbeds del día. Sí verificado: recreación completa de todos los contenedores con imágenes nuevas sin intervención manual (migraciones, metadata de Hasura, deployments de Prefect) El arranque en frío de la ingesta está implementado (`serve.py` lanza la primera ingesta si un catálogo está vacío), pero sin volúmenes vacíos no se ha vuelto a probar. Probar el arranque limpio con `docker compose down -v && docker compose up --build`: todo debe levantar sin intervención manual, con migraciones, metadata de Hasura, deployment de Prefect y una primera ingesta real.
 - [x] **6.2 (A)** ✅ 2026-10-10 (Gabriela) Escribir el script E2E `tests/e2e/test_saga.py`, que contra el gateway haga login → búsqueda → `bookPackage` en el *happy path* y con fallo en cada paso, y verifique la orden y el inventario.
-- [ ] **6.3 (B)** Escribir el script E2E de ingesta: lanzar el flow manualmente y verificar las filas nuevas, los reintentos registrados en Prefect y que el inventario de las ofertas existentes no cambie.
-- [ ] **6.4 (B)** Probar el escalado: `docker compose up --scale dask-worker=4` y mostrar el reparto de tareas en el dashboard de Dask.
-- [ ] **6.5 (A+B)** Corregir los bugs de integración y alcanzar el hito **H4 (code freeze)**.
+- [x] **6.3 (B)** ✅ 2026-10-10: `tests/ingest/test_ingest_e2e.py` (`python scripts/run_service_tests.py ingest`), **5/5**: lanza el deployment real con `catalogs=["cars"]` y `simulate_fault_rate=0.4`; flow COMPLETED, 30 búsquedas en Dask, 23 con reintentos (máx. 4 intentos), 262 ofertas escritas y el inventario de las 478 previas intacto (6 con unidades reservadas por la SAGA). Escribir el script E2E de ingesta: lanzar el flow manualmente y verificar las filas nuevas, los reintentos registrados en Prefect y que el inventario de las ofertas existentes no cambie.
+- [x] **6.4 (B)** ✅ 2026-10-10: con 4 workers (8 hilos), el flow `smoke` repartió 12 tareas 4/2/3/3 entre los cuatro contenedores. Probar el escalado: `docker compose up --scale dask-worker=4` y mostrar el reparto de tareas en el dashboard de Dask.
+- [x] **6.5 (A+B)** ✅ 2026-10-10: H4 alcanzado. Suites en verde contra el stack endurecido: pipeline 75, contrato de reservas 3×14, seguridad 15, E2E ingesta 5, E2E SAGA (happy path + 3 compensaciones); CI con 17 jobs en verde. Corregir los bugs de integración y alcanzar el hito **H4 (code freeze)**.
 
 ### Fase 7 — Documentación y demostración (Días 12–14)
 
 **Rol A**
-- [ ] **7.1** Escribir `docs/saga.md` con los **diagramas de secuencia en Mermaid**: (1) *happy path*; (2) fallo en autos con compensación de hotel y vuelo; (3) fallo en pago con reembolso más todas las cancelaciones. Incluir la tabla de pasos y compensaciones y la justificación de usar orquestación en lugar de coreografía.
-- [ ] **7.2** Documentar la seguridad: diseño de sesiones (Session Fixation), parámetros de Argon2id y tabla de límites del rate limiting con su evidencia (capturas o salidas de las pruebas de 5.3).
+- [x] **7.1** ✅ 2026-10-10. Escribir `docs/saga.md` con los **diagramas de secuencia en Mermaid**: (1) *happy path*; (2) fallo en autos con compensación de hotel y vuelo; (3) fallo en pago con reembolso más todas las cancelaciones. Incluir la tabla de pasos y compensaciones y la justificación de usar orquestación en lugar de coreografía.
+- [x] **7.2** ✅ 2026-10-10: `docs/seguridad/README.md`. Documentar la seguridad: diseño de sesiones (Session Fixation), parámetros de Argon2id y tabla de límites del rate limiting con su evidencia (capturas o salidas de las pruebas de 5.3).
 
 **Rol B**
-- [ ] **7.3** Escribir `docs/arquitectura.md` con el diagrama de componentes y despliegue (Mermaid/C4), el flujo de ingesta Fuentes reales → Prefect → Dask → Postgres → Hasura → Gateway, la **política de scraping responsable y el registro de fuentes (§1.4)** con sus limitaciones (términos de uso, cambios de HTML), y la justificación técnica de cada elección del stack.
-- [ ] **7.4** Escribir un `README.md` con requisitos, `cp .env.example .env`, `docker compose up`, URLs de cada panel y usuarios demo.
-- [ ] **7.5** Compilar el **Documento Técnico** final (Markdown → PDF) que una 7.1, 7.2 y 7.3.
+- [x] **7.3** ✅ 2026-10-10. Escribir `docs/arquitectura.md` con el diagrama de componentes y despliegue (Mermaid/C4), el flujo de ingesta Fuentes reales → Prefect → Dask → Postgres → Hasura → Gateway, la **política de scraping responsable y el registro de fuentes (§1.4)** con sus limitaciones (términos de uso, cambios de HTML), y la justificación técnica de cada elección del stack.
+- [x] **7.4** ✅ 2026-10-10. Escribir un `README.md` con requisitos, `cp .env.example .env`, `docker compose up`, URLs de cada panel y usuarios demo.
+- [x] **7.5** ✅ 2026-10-10: `docs/documento-tecnico.pdf` (20 páginas, 7 diagramas Mermaid) generado con `python scripts/build_technical_doc.py --autores "..."`; incluye como anexo `docs/requerimientos.md` (trazabilidad requisito → código → demostración). Compilar el **Documento Técnico** final (Markdown → PDF) que una 7.1, 7.2 y 7.3.
 
 **A+B**
-- [ ] **7.6** Escribir el **guion de la demo** (`docs/demo-guion.md`) cubriendo los cuatro puntos obligatorios:
+- [x] **7.6** ✅ 2026-10-10: `docs/demo-guion.md` (pasos Haz/Muestra/Di, preparación, plan B y preguntas probables), recorrido verificado en la UI real. Escribir el **guion de la demo** (`docs/demo-guion.md`) cubriendo los cuatro puntos obligatorios:
   - (a) UI de Prefect: flow de scraping real en ejecución, reintentos (con `SCRAPER_FAULT_RATE`) y estados
   - (b) dashboard de Dask: workers procesando tareas en paralelo
   - (c) frontend consumiendo GraphQL, con la pestaña Network del navegador mostrando las queries a `/graphql`
   - (d) checkout con fallo simulado en autos → línea de tiempo con compensaciones e inventario restaurado
 - [ ] **7.7** Grabar el video de la demo y hacer un ensayo de la sustentación.
-- [ ] **7.8** Revisión final del repositorio: sin secretos, sin archivos basura y con un historial de commits limpio.
+- [x] **7.8** ✅ 2026-10-10: ningún valor de `.env` ni credencial de prueba en los 233 archivos versionados; `.env` y artefactos generados ignorados. Revisión final del repositorio: sin secretos, sin archivos basura y con un historial de commits limpio.
 
 ---
 

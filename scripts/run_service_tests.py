@@ -4,6 +4,7 @@
     python scripts/run_service_tests.py flights         # solo uno
     python scripts/run_service_tests.py pipeline        # scrapers + ingesta (incluye BD real)
     python scripts/run_service_tests.py security        # pruebas de seguridad contra el stack (5.3)
+    python scripts/run_service_tests.py ingest          # E2E de la ingesta con Prefect + Dask (6.3)
 
 Requisitos: `docker compose up -d` (Postgres en marcha) y un .env generado.
 Construye la etapa `test` del Dockerfile de cada servicio y la ejecuta en la red
@@ -80,9 +81,32 @@ def run_security(env: dict[str, str]) -> int:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
 
+def run_ingest(env: dict[str, str]) -> int:
+    """E2E de la ingesta (tests/ingest): lanza el deployment real de Prefect y revisa la BD."""
+    image = "wandersync/data-pipeline:test"  # trae pytest, httpx y psycopg
+    print("\n=== ingest: build ===", flush=True)
+    subprocess.run(["docker", "build", "-q", "-f", "data-pipeline/Dockerfile", "--target", "test", "-t", image, "."],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    test_env = {
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_DB": env.get("POSTGRES_DB", "wandersync"),
+        "CARS_DB_USER": env["CARS_DB_USER"],
+        "CARS_DB_PASSWORD": env["CARS_DB_PASSWORD"],
+        "PREFECT_API_URL": "http://prefect-server:4200/api",
+    }
+    args = ["docker", "run", "--rm", "--network", "wandersync-backend",
+            "-v", f"{(ROOT / 'tests' / 'ingest').as_posix()}:/ingest:ro", "-w", "/ingest"]
+    for key, value in test_env.items():
+        args += ["-e", f"{key}={value}"]
+    print("=== ingest: pytest ===", flush=True)
+    return subprocess.run([*args, image, "pytest", "-p", "no:cacheprovider", "-v", "-s", "/ingest"], cwd=ROOT).returncode
+
+
 def run(service: str, env: dict[str, str]) -> int:
     if service == "security":
         return run_security(env)
+    if service == "ingest":
+        return run_ingest(env)
     if service == "pipeline":
         return run_pipeline(env)
     image = f"wandersync/{service}-service:test"
