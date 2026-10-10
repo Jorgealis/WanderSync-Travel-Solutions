@@ -9,6 +9,7 @@ import httpx
 import strawberry
 from strawberry.fastapi import BaseContext
 from strawberry.schema.config import StrawberryConfig
+from strawberry.types.nodes import FragmentSpread, InlineFragment, SelectedField
 from fastapi import Request, Response
 from graphql import GraphQLError
 from strawberry.dataloader import DataLoader
@@ -60,6 +61,7 @@ class RoomType(str, Enum):
     TWIN = "TWIN"
     SUITE = "SUITE"
     FAMILY = "FAMILY"
+    OTHER = "OTHER"
 
 
 @strawberry.enum
@@ -139,15 +141,19 @@ class FlightOffer:
     id: strawberry.ID
     source: str
     airline: str
-    flight_number: str
+    operated_by: str | None
+    flight_number: str | None
     origin: str
     destination: str
     departure_at: datetime
     arrival_at: datetime
     duration_minutes: int
+    stops: int
     cabin_class: CabinClass
     price: Decimal
     currency: str
+    original_price: Decimal
+    original_currency: str
     seats_available: int
     scraped_at: datetime
 
@@ -158,10 +164,16 @@ class HotelOffer:
     source: str
     hotel_name: str
     city_code: str
+    zone_name: str | None
     address: str | None
-    stars: int
+    latitude: float | None
+    longitude: float | None
+    stars: int | None
+    category_name: str | None
     rating: float | None
     room_type: RoomType
+    room_name: str
+    board_name: str
     max_guests: int
     check_in: date
     check_out: date
@@ -169,6 +181,8 @@ class HotelOffer:
     price_per_night: Decimal
     price_total: Decimal
     currency: str
+    original_price: Decimal
+    original_currency: str
     rooms_available: int
     scraped_at: datetime
 
@@ -189,8 +203,31 @@ class CarOffer:
     price_per_day: Decimal
     price_total: Decimal
     currency: str
+    original_price: Decimal
+    original_currency: str
     units_available: int
     scraped_at: datetime
+
+
+# Campos que el gateway puede pedir a Hasura por tipo (protección contra over-fetching:
+# solo se consultan las columnas pedidas por el cliente que estén en esta lista).
+# `duration_minutes` no es columna: se calcula a partir de salida y llegada.
+FLIGHT_FIELDS = frozenset({
+    "id", "source", "airline", "operated_by", "flight_number", "origin", "destination",
+    "departure_at", "arrival_at", "duration_minutes", "stops", "cabin_class", "price", "currency",
+    "original_price", "original_currency", "seats_available", "scraped_at",
+})
+HOTEL_FIELDS = frozenset({
+    "id", "source", "hotel_name", "city_code", "zone_name", "address", "latitude", "longitude",
+    "stars", "category_name", "rating", "room_type", "room_name", "board_name", "max_guests",
+    "check_in", "check_out", "nights", "price_per_night", "price_total", "currency",
+    "original_price", "original_currency", "rooms_available", "scraped_at",
+})
+CAR_FIELDS = frozenset({
+    "id", "source", "company", "model", "category", "transmission", "seats", "city_code",
+    "pickup_date", "dropoff_date", "days", "price_per_day", "price_total", "currency",
+    "original_price", "original_currency", "units_available", "scraped_at",
+})
 
 
 @strawberry.input
@@ -236,10 +273,22 @@ class CatalogSourceStatus:
     last_sync_at: datetime | None
 
 
+def _fields(selections: list[Any]) -> list[Any]:
+    """Campos realmente pedidos, expandiendo fragments con nombre (`...FlightCard`) y en línea
+    (`... on FlightOffer`). Sin esto, una consulta con fragments no "pedía" ninguna columna."""
+    result = []
+    for node in selections:
+        if isinstance(node, SelectedField):
+            result.append(node)
+        elif isinstance(node, (FragmentSpread, InlineFragment)):
+            result.extend(_fields(node.selections))
+    return result
+
+
 def _selection_names(info: Info[GatewayContext, Any], allowed_fields: set[str]) -> set[str]:
     names = {
         _camel_to_snake(field.name)
-        for field in info.selected_fields[0].selections
+        for field in _fields(info.selected_fields[0].selections)
         if _camel_to_snake(field.name) in allowed_fields
     }
     if not names:
@@ -258,10 +307,10 @@ def _nested_selection_names(
         (
             {
                 _camel_to_snake(child.name)
-                for child in field.selections
+                for child in _fields(field.selections)
                 if _camel_to_snake(child.name) in allowed_fields
             }
-            for field in info.selected_fields[0].selections
+            for field in _fields(info.selected_fields[0].selections)
             if _camel_to_snake(field.name) == parent_name
         ),
         set(),
@@ -275,6 +324,7 @@ class FlightSearchInput:
     departure_date: date
     passengers: int = 1
     cabin_class: CabinClass | None = None
+    max_stops: int | None = None
     max_price: Decimal | None = None
     sort_by: OfferSort = OfferSort.PRICE_ASC
     limit: int = 20
@@ -338,7 +388,7 @@ class Saga:
     status: SagaStatus
     current_step: SagaStepName | None
     failure_reason: str | None
-    simulate_failure_at: FailurePoint | None
+    simulated_failure_at: FailurePoint | None
     steps: list[SagaStep]
 
 
@@ -381,29 +431,17 @@ class Order:
 
     @strawberry.field
     async def flight(self, info: Info[GatewayContext, None]) -> FlightOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "airline", "flight_number", "origin", "destination",
-            "departure_at", "arrival_at", "cabin_class", "price", "currency",
-            "seats_available", "scraped_at", "duration_minutes",
-        })
+        fields = _selection_names(info, FLIGHT_FIELDS)
         return await info.context.flight_offer_loader.load((self.flight_offer_id, tuple(sorted(fields))))
 
     @strawberry.field
     async def hotel(self, info: Info[GatewayContext, None]) -> HotelOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "hotel_name", "city_code", "address", "stars", "rating",
-            "room_type", "max_guests", "check_in", "check_out", "nights",
-            "price_per_night", "price_total", "currency", "rooms_available", "scraped_at",
-        })
+        fields = _selection_names(info, HOTEL_FIELDS)
         return await info.context.hotel_offer_loader.load((self.hotel_offer_id, tuple(sorted(fields))))
 
     @strawberry.field
     async def car(self, info: Info[GatewayContext, None]) -> CarOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "company", "model", "category", "transmission", "seats",
-            "city_code", "pickup_date", "dropoff_date", "days", "price_per_day",
-            "price_total", "currency", "units_available", "scraped_at",
-        })
+        fields = _selection_names(info, CAR_FIELDS)
         return await info.context.car_offer_loader.load((self.car_offer_id, tuple(sorted(fields))))
 
 
@@ -464,6 +502,8 @@ class Query:
             },
             "seats_available": {"_gte": input.passengers},
         }
+        if input.max_stops is not None:
+            where["stops"] = {"_lte": input.max_stops}
         if input.cabin_class is not None:
             where["cabin_class"] = {"_eq": input.cabin_class.value}
         if input.max_price is not None:
@@ -481,11 +521,7 @@ class Query:
             limit=input.limit,
             offset=input.offset,
             order_by=order_by,
-            allowed_fields={
-                "id", "source", "airline", "flight_number", "origin", "destination",
-                "departure_at", "arrival_at", "cabin_class", "price", "currency",
-                "seats_available", "scraped_at", "duration_minutes",
-            },
+            allowed_fields=FLIGHT_FIELDS,
         )
 
     @strawberry.field
@@ -526,11 +562,7 @@ class Query:
             limit=input.limit,
             offset=input.offset,
             order_by=order_by,
-            allowed_fields={
-                "id", "source", "hotel_name", "city_code", "address", "stars", "rating",
-                "room_type", "max_guests", "check_in", "check_out", "nights",
-                "price_per_night", "price_total", "currency", "rooms_available", "scraped_at",
-            },
+            allowed_fields=HOTEL_FIELDS,
         )
 
     @strawberry.field
@@ -567,11 +599,7 @@ class Query:
             limit=input.limit,
             offset=input.offset,
             order_by=order_by,
-            allowed_fields={
-                "id", "source", "company", "model", "category", "transmission", "seats",
-                "city_code", "pickup_date", "dropoff_date", "days", "price_per_day",
-                "price_total", "currency", "units_available", "scraped_at",
-            },
+            allowed_fields=CAR_FIELDS,
         )
 
     @strawberry.field
@@ -593,21 +621,9 @@ class Query:
         ):
             raise GraphQLError("Invalid package search parameters", extensions={"code": "BAD_USER_INPUT"})
 
-        flight_allowed_fields = {
-            "id", "source", "airline", "flight_number", "origin", "destination",
-            "departure_at", "arrival_at", "duration_minutes", "cabin_class",
-            "price", "currency", "seats_available", "scraped_at",
-        }
-        hotel_allowed_fields = {
-            "id", "source", "hotel_name", "city_code", "address", "stars", "rating",
-            "room_type", "max_guests", "check_in", "check_out", "nights",
-            "price_per_night", "price_total", "currency", "rooms_available", "scraped_at",
-        }
-        car_allowed_fields = {
-            "id", "source", "company", "model", "category", "transmission", "seats",
-            "city_code", "pickup_date", "dropoff_date", "days", "price_per_day",
-            "price_total", "currency", "units_available", "scraped_at",
-        }
+        flight_allowed_fields = FLIGHT_FIELDS
+        hotel_allowed_fields = HOTEL_FIELDS
+        car_allowed_fields = CAR_FIELDS
         flight_fields = _nested_selection_names(
             info, "flight", flight_allowed_fields
         ) | {"price", "currency"}
@@ -716,11 +732,7 @@ class Query:
         info: Info[GatewayContext, None],
         id: strawberry.ID,
     ) -> FlightOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "airline", "flight_number", "origin", "destination",
-            "departure_at", "arrival_at", "duration_minutes", "cabin_class",
-            "price", "currency", "seats_available", "scraped_at",
-        })
+        fields = _selection_names(info, FLIGHT_FIELDS)
         return await info.context.flight_offer_loader.load((str(id), tuple(sorted(fields))))
 
     @strawberry.field
@@ -729,11 +741,7 @@ class Query:
         info: Info[GatewayContext, None],
         id: strawberry.ID,
     ) -> HotelOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "hotel_name", "city_code", "address", "stars", "rating",
-            "room_type", "max_guests", "check_in", "check_out", "nights",
-            "price_per_night", "price_total", "currency", "rooms_available", "scraped_at",
-        })
+        fields = _selection_names(info, HOTEL_FIELDS)
         return await info.context.hotel_offer_loader.load((str(id), tuple(sorted(fields))))
 
     @strawberry.field
@@ -742,11 +750,7 @@ class Query:
         info: Info[GatewayContext, None],
         id: strawberry.ID,
     ) -> CarOffer | None:
-        fields = _selection_names(info, {
-            "id", "source", "company", "model", "category", "transmission", "seats",
-            "city_code", "pickup_date", "dropoff_date", "days", "price_per_day",
-            "price_total", "currency", "units_available", "scraped_at",
-        })
+        fields = _selection_names(info, CAR_FIELDS)
         return await info.context.car_offer_loader.load((str(id), tuple(sorted(fields))))
 
     @strawberry.field
@@ -1215,7 +1219,7 @@ def _as_order(data: dict[str, Any]) -> Order:
             if saga_data.get("current_step") is not None else None
         ),
         failure_reason=saga_data.get("failure_reason"),
-        simulate_failure_at=(
+        simulated_failure_at=(
             FailurePoint(str(saga_data["simulate_failure_at"]))
             if saga_data.get("simulate_failure_at") is not None else None
         ),
@@ -1303,7 +1307,7 @@ async def _search_catalog(
 
     selected = selected_fields or {
         _camel_to_snake(field.name)
-        for field in info.selected_fields[0].selections
+        for field in _fields(info.selected_fields[0].selections)
         if _camel_to_snake(field.name) in allowed_fields
     }
     query_fields = set(selected)

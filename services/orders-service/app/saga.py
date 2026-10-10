@@ -211,6 +211,10 @@ async def _run_step(
         saga.current_step = name
         await session.commit()
 
+        if settings.saga_step_delay_seconds > 0:
+            # Solo para la demo: deja ver cada paso "en curso" en la línea de tiempo del frontend.
+            await asyncio.sleep(settings.saga_step_delay_seconds)
+
         try:
             result, external_ref = await operation()
         except RemoteStepError as error:

@@ -237,7 +237,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - **límite de concurrencia por fuente** (tags de Prefect), para no saturar las fuentes reales
   - interruptor `SCRAPER_FAULT_RATE`, que simula fallos de red, para demostrar los *retries* en vivo
   - subflows `ingest_flights`, `ingest_hotels` e `ingest_cars`, y artefactos con el resumen (descargados, válidos, descartados, insertados, actualizados)
-- [x] **2.12** **Deployment de Prefect** (`flows/serve.py`). ✅ 2026-10-10, **hito H2 verificado** con arranque en frío (BD vacía, sin pasos manuales): `serve` registró 3 deployments (`vuelos-y-autos` cada hora, `hoteles-diario`, `smoke`) y lanzó solo la primera ingesta → **572 vuelos reales, 3.533 ofertas de hotel reales (15 búsquedas omitidas por la cuota) y 478 autos**. Demo de reintentos (`simulate_fault_rate=0.3`): 20 de 30 tareas reintentadas y flow `Completed`. Reparto en Dask 4/3/5. Pruebas: 117/117. Detalle original: con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
+- [x] **2.12** **Deployment de Prefect** (`flows/serve.py`). ✅ 2026-10-10, **hito H2 verificado** con arranque en frío (BD vacía, sin pasos manuales): `serve` registró 3 deployments (`vuelos-y-autos` cada hora, `hoteles-diario`, `smoke`) y lanzó solo la primera ingesta → **572 vuelos reales, 3.533 ofertas de hotel reales (15 búsquedas omitidas por la cuota) y 478 autos**. Demo de reintentos (`simulate_fault_rate=0.3`): 20 de 30 tareas reintentadas y flow `Completed`. **Corrección 2026-10-10:** el programador de Prefect no creaba corridas programadas porque la imagen usaba SQLAlchemy 2.1 ("Can't evaluate bulk DML statement"); fijado a 2.0.54, la corrida de las 04:00 UTC se ejecutó sola (21/21 búsquedas de vuelos). Reparto en Dask 4/3/5. Pruebas: 117/117. Detalle original: con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
 
 **Rol A — Servicios de dominio**
 - [x] **2.13** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
@@ -272,7 +272,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 ### Fase 4 — API Gateway GraphQL y autenticación (Días 7–10)
 
 **Rol A**
-- [x] **4.1** ✅ 2026-10-10 (Gabriela, integrado y verificado: `searchFlights/Hotels/Cars/Packages` y `catalogStatus` devuelven el catálogo real vía Hasura). *Pendiente menor: exponer en el esquema los campos agregados al contrato en 2.2/2.5 (`operatedBy`, `stops`, `originalPrice`, `roomName`, `boardName`…).* Implementar el **gateway con Strawberry** sobre el SDL acordado.
+- [x] **4.1** ✅ 2026-10-10 (Gabriela, integrado y verificado: `searchFlights/Hotels/Cars/Packages` y `catalogStatus` devuelven el catálogo real vía Hasura). Completado el 2026-10-10: el gateway expone todo el contrato (`operatedBy`, `stops`, `originalPrice`, `roomName`, `boardName`, `maxStops`…; diferencia menor: `limit`/`offset`/`sortBy` son obligatorios con valor por defecto) y **soporta fragments** (antes una consulta con `...Fragment` fallaba). Implementar el **gateway con Strawberry** sobre el SDL acordado.
   - Las queries de catálogo se resuelven contra Hasura, **reenviando solo los campos que pidió el cliente** (`info.selected_fields`), para no generar over-fetching aguas abajo.
   - `searchPackages` consolida vuelos, hoteles y autos en una sola respuesta, con combinación por presupuesto y fechas.
   - Se usan DataLoaders para evitar N+1.
@@ -286,11 +286,11 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [x] **4.6** ✅ 2026-10-10 (Gabriela, integrado y verificado) (sin cabecera CSRF → `FORBIDDEN`) Aplicar **límites al gateway**: profundidad máxima de query, coste o complejidad, introspección desactivada en producción, CORS restringido al origen del frontend y protección CSRF (header personalizado más SameSite).
 
 **Rol B**
-- [ ] **4.7** Crear la vista de **login/registro** en el frontend.
-- [ ] **4.8** Crear la vista de **búsqueda** y el **constructor de paquetes** (selección de vuelo, hotel y auto) usando fragments con solo los campos que se muestran.
-- [ ] **4.9** Crear la vista de **checkout**, con un panel de demo para elegir *"Simular fallo en: ninguno / vuelo / hotel / auto / pago"*.
-- [ ] **4.10** Crear la vista de **detalle de orden** con una línea de tiempo de los pasos de la SAGA (reservas y compensaciones), consultada por polling.
-- [ ] **4.11** Mostrar un indicador de "última sincronización de tarifas" (lee `scraped_at` del catálogo).
+- [x] **4.7** ✅ 2026-10-10: login y registro (validación de longitud y confirmación, mensajes por código de error, vuelta a `?next=`). Crear la vista de **login/registro** en el frontend.
+- [x] **4.8** ✅ 2026-10-10: búsqueda con fechas rápidas que tienen tarifas; constructor con vuelos, hoteles, autos y 3 paquetes sugeridos en **una sola petición GraphQL** con fragments por tarjeta. Crear la vista de **búsqueda** y el **constructor de paquetes** (selección de vuelo, hotel y auto) usando fragments con solo los campos que se muestran.
+- [x] **4.9** ✅ 2026-10-10: requiere sesión (conserva la selección tras el login), clave de idempotencia por intento, panel "Simular fallo en". Crear la vista de **checkout**, con un panel de demo para elegir *"Simular fallo en: ninguno / vuelo / hotel / auto / pago"*.
+- [x] **4.10** ✅ 2026-10-10: línea de tiempo en vivo (polling cada 1 s hasta un estado final; `SAGA_STEP_DELAY_SECONDS` hace visible cada paso en la demo) + "Mis órdenes". Verificado en el navegador: falla en auto → compensación de auto, hotel y vuelo; happy path → CONFIRMED con factura y total igual al estimado. Crear la vista de **detalle de orden** con una línea de tiempo de los pasos de la SAGA (reservas y compensaciones), consultada por polling.
+- [x] **4.11** ✅ 2026-10-10: en la cabecera ("vuelos hace 5 min · hoteles hace 4 h · autos hace 4 min"). Mostrar un indicador de "última sincronización de tarifas" (lee `scraped_at` del catálogo).
 
 ### Fase 5 — Ciberseguridad y endurecimiento (Días 10–12)
 

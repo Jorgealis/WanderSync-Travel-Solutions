@@ -15,6 +15,12 @@
         name: flight_offers
       configuration:
         custom_name: flight_offers
+        # Nombres del contrato GraphQL (originalPrice / originalCurrency).
+        column_config:
+          price_original:
+            custom_name: original_price
+          currency_original:
+            custom_name: original_currency
       select_permissions:
         - role: gateway
           permission:
@@ -48,6 +54,12 @@
         name: room_offers
       configuration:
         custom_name: room_offers
+        # Nombres del contrato GraphQL (originalPrice / originalCurrency).
+        column_config:
+          price_original:
+            custom_name: original_price
+          currency_original:
+            custom_name: original_currency
       select_permissions:
         - role: gateway
           permission:
@@ -92,6 +104,12 @@
         name: car_offers
       configuration:
         custom_name: car_offers
+        # Nombres del contrato GraphQL (originalPrice / originalCurrency).
+        column_config:
+          price_original:
+            custom_name: original_price
+          currency_original:
+            custom_name: original_currency
       select_permissions:
         - role: gateway
           permission:

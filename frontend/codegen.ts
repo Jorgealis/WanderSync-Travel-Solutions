@@ -9,6 +9,8 @@ const config: CodegenConfig = {
   generates: {
     "src/gql/": {
       preset: "client",
+      // Sin enmascaramiento: los fragments definen QUÉ campos pide cada componente (sin over-fetching).
+      presetConfig: { fragmentMasking: false },
       config: {
         useTypeImports: true,
         enumsAsTypes: true,

@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
+import { LastSync } from "./components/LastSync";
 import { LOGOUT, ME } from "./graphql/operations";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -26,8 +27,8 @@ export function Layout() {
             WanderSync
           </Link>
           <NavLink to="/search" className={navClass}>Buscar</NavLink>
-          <NavLink to="/package" className={navClass}>Paquete</NavLink>
           <NavLink to="/checkout" className={navClass}>Checkout</NavLink>
+          <NavLink to="/orders" end className={navClass}>Mis órdenes</NavLink>
           <div className="ml-auto text-sm text-sky-100">
             {user ? (
               <span className="flex items-center gap-3">
@@ -41,6 +42,9 @@ export function Layout() {
             )}
           </div>
         </nav>
+        <div className="mx-auto max-w-5xl px-4 pb-2">
+          <LastSync />
+        </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">
         <Outlet />

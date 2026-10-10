@@ -12,5 +12,7 @@ httpx==0.28.1
 selectolax==0.4.13
 pandas==3.0.6
 pydantic==2.13.5
-sqlalchemy==2.1.3
+# 2.0.x: Prefect 3.8 declara <3.0 pero su programador (scheduler) falla con SQLAlchemy 2.1
+# ("Can't evaluate bulk DML statement"): sin esto no se crean las corridas programadas.
+sqlalchemy==2.0.54
 psycopg[binary]==3.3.6

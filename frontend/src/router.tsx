@@ -5,6 +5,7 @@ import { CheckoutPage } from "./pages/CheckoutPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OrderPage } from "./pages/OrderPage";
+import { OrdersPage } from "./pages/OrdersPage";
 import { PackagePage } from "./pages/PackagePage";
 import { SearchPage } from "./pages/SearchPage";
 
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       { path: "search", element: <SearchPage /> },
       { path: "package", element: <PackagePage /> },
       { path: "checkout", element: <CheckoutPage /> },
+      { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
