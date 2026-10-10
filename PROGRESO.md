@@ -225,12 +225,12 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - servicio `mock-car-rental` en Docker Compose que sirve resultados por ciudad y fechas (`MDE`, `CTG`, `SMR`, `BOG`, `ADZ`), con **complejidad de fuente real**: paginación, formatos de precio y fecha variables, campos faltantes, duplicados, latencia y fallos 5xx/429 configurables
   - datos verosímiles: modelos y categorías de autos reales del mercado colombiano, pero **empresas arrendadoras ficticias** (no se atribuyen precios inventados a marcas reales) y `source = wandersync-mock-cars`, declarado como simulado en el documento técnico
   - cliente `scrapers/mock_car_rental.py` con el mismo `PoliteClient` y la misma clasificación de errores
-- [ ] **2.9** **Limpieza y normalización** paralelizable con `dask.bag`/`dask.dataframe`:
+- [x] **2.9** **Limpieza y normalización** paralelizable con `dask.bag`/`dask.dataframe` (`ingestion/normalize.py` + `ingestion/fx.py`). ✅ 2026-10-09: tasas del día desde la TRM (datos.gov.co) y el BCE (Frankfurter), con respaldo configurable; el filtro de rango descartó 4 tarifas absurdas reales de Hotelbeds (hasta 303.746 USD/noche). Detalle:
   - conversión COP → USD (vuelos) y EUR → USD (hoteles), con tasa configurable o de una fuente pública
   - descarte de precios fuera de rango (en Hotelbeds apareció un hotel "desde 497.102 EUR")
   - fechas a ISO/UTC y deduplicación por `(source, external_id)`
   - validación con Pydantic; los registros inválidos se descartan y se cuentan
-- [ ] **2.10** **Persistencia por lotes**: upsert `ON CONFLICT DO UPDATE` que **nunca** modifica el inventario; el inventario inicial se asigna solo al insertar una oferta nueva.
+- [x] **2.10** **Persistencia por lotes** (`ingestion/persist.py`). ✅ 2026-10-09: prueba de integración contra la BD real: la segunda ingesta actualiza el precio y conserva las reservas de la SAGA; `ingest` recibe *permission denied* al tocar el inventario. 75 pruebas en el pipeline (`python scripts/run_service_tests.py pipeline`). Detalle: upsert `ON CONFLICT DO UPDATE` que **nunca** modifica el inventario; el inventario inicial se asigna solo al insertar una oferta nueva.
 - [ ] **2.11** **Flow de Prefect** `ingest_travel_data`:
   - `DaskTaskRunner(address="tcp://dask-scheduler:8786")` con fan-out `.map()` por fuente × ruta × fecha
   - `@task(retries=3, retry_delay_seconds=exponential_backoff(10), retry_jitter_factor=0.5)` en extracción y escritura; **sin reintentos** ante bloqueo (CAPTCHA)

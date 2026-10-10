@@ -2,6 +2,7 @@
 
     python scripts/run_service_tests.py                 # flights, hotels y cars
     python scripts/run_service_tests.py flights         # solo uno
+    python scripts/run_service_tests.py pipeline        # scrapers + ingesta (incluye BD real)
 
 Requisitos: `docker compose up -d` (Postgres en marcha) y un .env generado.
 Construye la etapa `test` del Dockerfile de cada servicio y la ejecuta en la red
@@ -28,7 +29,30 @@ def read_env() -> dict[str, str]:
     return env
 
 
+def run_pipeline(env: dict[str, str]) -> int:
+    image = "wandersync/data-pipeline:test"
+    print("\n=== data-pipeline: build ===", flush=True)
+    subprocess.run(["docker", "build", "-q", "-f", "data-pipeline/Dockerfile", "--target", "test", "-t", image, "."],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    test_env = {
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_DB": env.get("POSTGRES_DB", "wandersync"),
+        "INGEST_DB_USER": env["INGEST_DB_USER"],
+        "INGEST_DB_PASSWORD": env["INGEST_DB_PASSWORD"],
+        # Solo para limpiar lo que crean las pruebas (ingest no puede borrar).
+        "CLEANUP_DB_USER": env["FLIGHTS_DB_USER"],
+        "CLEANUP_DB_PASSWORD": env["FLIGHTS_DB_PASSWORD"],
+    }
+    args = ["docker", "run", "--rm", "--network", "wandersync-backend"]
+    for key, value in test_env.items():
+        args += ["-e", f"{key}={value}"]
+    print("=== data-pipeline: pytest ===", flush=True)
+    return subprocess.run([*args, image, "pytest"], cwd=ROOT).returncode
+
+
 def run(service: str, env: dict[str, str]) -> int:
+    if service == "pipeline":
+        return run_pipeline(env)
     image = f"wandersync/{service}-service:test"
     print(f"\n=== {service}-service: build ===", flush=True)
     subprocess.run(
