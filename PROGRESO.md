@@ -299,8 +299,8 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - por **operación GraphQL** (`login`, `register`, `bookPackage`), porque todo pasa por el endpoint único `/graphql` y limitar por ruta no basta
   - límites por IP y por usuario, por ejemplo `login: 5/min/IP`, `bookPackage: 3/min/usuario`
   - respuesta GraphQL con un error `RATE_LIMITED` y `Retry-After`
-- [x] **5.2** (Gabriela) Agregar rate limiting también en el endpoint de pago de `orders-service` (defensa en profundidad).
-- [ ] **5.3** Escribir pruebas de seguridad automatizadas: que el ID de sesión cambie tras el login (pre-login ≠ post-login), que el hash almacenado empiece por `$argon2id$` y que la petición 6 de login en un minuto reciba 429/`RATE_LIMITED`.
+- [x] **5.2** ✅ 2026-10-10 (Gabriela; verificado por la prueba de seguridad: el 11.º pago del minuto → `429`. Corrección: la SAGA se lanzaba con `BackgroundTasks`, que bloqueaba la conexión keep-alive hasta que terminaba; ahora es una tarea del event loop) Agregar rate limiting también en el endpoint de pago de `orders-service` (defensa en profundidad).
+- [x] **5.3** ✅ 2026-10-10: `tests/security/test_security.py`, **15/15** contra el stack real (`python scripts/run_service_tests.py security`): Argon2id (`$argon2id$v=19$m=65536,t=3,p=4$`), contraseña mínima, Session Fixation, rotación y revocación en cada login, logout en el servidor, cookie HttpOnly/SameSite=Strict, CSRF, no enumeración de usuarios, privacidad de órdenes entre usuarios, rate limiting de login (por IP; falsificar `X-Forwarded-For` a través de Nginx no lo evita), de checkout (por usuario) y de pago en orders-service, límite de profundidad y cabeceras. Escribir pruebas de seguridad automatizadas: que el ID de sesión cambie tras el login (pre-login ≠ post-login), que el hash almacenado empiece por `$argon2id$` y que la petición 6 de login en un minuto reciba 429/`RATE_LIMITED`.
 - [x] **5.4** (Gabriela, gateway) Añadir headers de seguridad en el gateway y en Nginx (CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
 
 **Rol B**

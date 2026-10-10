@@ -3,6 +3,7 @@
     python scripts/run_service_tests.py                 # flights, hotels y cars
     python scripts/run_service_tests.py flights         # solo uno
     python scripts/run_service_tests.py pipeline        # scrapers + ingesta (incluye BD real)
+    python scripts/run_service_tests.py security        # pruebas de seguridad contra el stack (5.3)
 
 Requisitos: `docker compose up -d` (Postgres en marcha) y un .env generado.
 Construye la etapa `test` del Dockerfile de cada servicio y la ejecuta en la red
@@ -50,7 +51,38 @@ def run_pipeline(env: dict[str, str]) -> int:
     return subprocess.run([*args, image, "pytest"], cwd=ROOT).returncode
 
 
+def run_security(env: dict[str, str]) -> int:
+    """Pruebas de seguridad (tests/security) desde un contenedor conectado a backend y frontend."""
+    image = "wandersync/data-pipeline:test"  # trae pytest, httpx y psycopg
+    print("\n=== security: build ===", flush=True)
+    subprocess.run(["docker", "build", "-q", "-f", "data-pipeline/Dockerfile", "--target", "test", "-t", image, "."],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    test_env = {
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_DB": env.get("POSTGRES_DB", "wandersync"),
+        "AUTH_DB_USER": env["AUTH_DB_USER"],
+        "AUTH_DB_PASSWORD": env["AUTH_DB_PASSWORD"],
+        "INTERNAL_API_TOKEN": env["INTERNAL_API_TOKEN"],
+        "SESSION_COOKIE_NAME": env.get("SESSION_COOKIE_NAME", "ws_session"),
+    }
+    name = "wandersync-security-tests"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    args = ["docker", "create", "--name", name, "--network", "wandersync-backend",
+            "-v", f"{(ROOT / 'tests' / 'security').as_posix()}:/security:ro", "-w", "/security"]
+    for key, value in test_env.items():
+        args += ["-e", f"{key}={value}"]
+    subprocess.run([*args, image, "pytest", "-p", "no:cacheprovider", "-v", "/security"], check=True, stdout=subprocess.DEVNULL)
+    try:
+        subprocess.run(["docker", "network", "connect", "wandersync-frontend", name], check=True)
+        print("=== security: pytest ===", flush=True)
+        return subprocess.run(["docker", "start", "-a", name], cwd=ROOT).returncode
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
 def run(service: str, env: dict[str, str]) -> int:
+    if service == "security":
+        return run_security(env)
     if service == "pipeline":
         return run_pipeline(env)
     image = f"wandersync/{service}-service:test"

@@ -1,9 +1,10 @@
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +44,6 @@ async def get_async_session() -> AsyncIterator[AsyncSession]:
 @router.post("", status_code=202)
 async def create_order(
     payload: CreateOrderRequest,
-    background_tasks: BackgroundTasks,
     response: Response,
     user_id: UUID = Header(alias="X-User-ID"),
     session: AsyncSession = Depends(get_async_session),
@@ -90,7 +90,11 @@ async def create_order(
     session.add_all([order, saga])
     await session.commit()
 
-    background_tasks.add_task(_run_saga_background, saga_id)
+    # La SAGA corre como tarea propia del event loop y NO como BackgroundTasks: estas se
+    # ejecutan dentro de la misma petición ASGI y bloquean la conexión keep-alive hasta que
+    # la SAGA termina (el gateway reutiliza conexiones). Si el proceso cae, la recuperación
+    # al arrancar (recover_pending_sagas) retoma la SAGA desde el estado persistido.
+    _launch_saga(saga_id)
     return await _order_data(session, order)
 
 
@@ -138,6 +142,15 @@ async def list_orders(
         ],
         "total": total_result.scalar_one(),
     }
+
+
+_running_sagas: set[asyncio.Task[None]] = set()
+
+
+def _launch_saga(saga_id: str) -> None:
+    task = asyncio.create_task(_run_saga_background(saga_id), name=f"saga-{saga_id}")
+    _running_sagas.add(task)  # referencia fuerte: evita que el recolector cancele la tarea
+    task.add_done_callback(_running_sagas.discard)
 
 
 async def _run_saga_background(saga_id: str) -> None:
