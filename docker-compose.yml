@@ -160,8 +160,8 @@ services:
     image: hasura/graphql-engine:v2.51.0.cli-migrations-v3
     restart: unless-stopped
     networks: [backend]
-    ports:
-      - "127.0.0.1:${HASURA_HOST_PORT:-8080}:8080"   # consola (solo desarrollo)
+    # Sin puertos publicados: solo el gateway (red `backend`) habla con Hasura (tarea 3.9).
+    # Consola para desarrollo o demo: docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
     depends_on:
       postgres:
         condition: service_healthy
@@ -181,6 +181,8 @@ services:
       HASURA_GRAPHQL_DEV_MODE: ${HASURA_GRAPHQL_DEV_MODE:-false}
       HASURA_GRAPHQL_ENABLE_TELEMETRY: "false"
       HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log
+      # Solo GraphQL y metadata (protegidas con el admin secret); sin pgdump, config ni developer.
+      HASURA_GRAPHQL_ENABLED_APIS: graphql,metadata
       HASURA_GRAPHQL_METADATA_DIR: /hasura-metadata
     volumes:
       - ./infra/hasura/metadata:/hasura-metadata:ro

@@ -265,7 +265,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 
 **Rol B — Hasura y base del frontend**
 - [x] **3.8** ✅ 2026-10-10 (Gabriela; integración: `custom_name` para que las raíces no lleven el prefijo del esquema y permisos para las columnas nuevas del contrato) Configurar Hasura: registrar las tablas de catálogo, crear las relaciones, definir el rol `gateway` de solo lectura con límite de filas, y exportar la metadata a `infra/hasura/metadata` para que se aplique automáticamente en `docker compose up` (imagen `cli-migrations`).
-- [ ] **3.9** Desactivar la consola y la introspección de Hasura para clientes externos; Hasura solo debe ser accesible por la red `backend` y protegido con `HASURA_GRAPHQL_ADMIN_SECRET`.
+- [x] **3.9** ✅ 2026-10-10: Hasura sin puertos publicados (desde el host: sin conexión), consola desactivada (404), solo APIs `graphql,metadata` (pgdump: 404), sin admin secret → rechazado, rol `gateway` sin acceso a reservas; introspección deshabilitada para `gateway` en la metadata (Hasura la sigue permitiendo con admin secret, que solo tiene el gateway en la red interna). Consola para demo: `docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d`. Desactivar la consola y la introspección de Hasura para clientes externos; Hasura solo debe ser accesible por la red `backend` y protegido con `HASURA_GRAPHQL_ADMIN_SECRET`.
 - [ ] **3.10** Montar el esqueleto del frontend: Vite + React + TS + Tailwind, Apollo Client con `credentials: 'include'`, GraphQL Codegen sobre el SDL del contrato (0.3) y rutas (`/login`, `/search`, `/package`, `/checkout`, `/orders/:id`).
 - [ ] **3.11** Crear el Dockerfile multi-stage del frontend (build con Node y servido con Nginx) y añadirlo a compose.
 

@@ -45,7 +45,7 @@ python scripts/run_service_tests.py pipeline flights hotels cars
 |---|---|
 | Frontend | http://localhost:3000 |
 | API GraphQL | http://localhost:8000/graphql |
-| Hasura console | http://localhost:8080 |
+| Hasura console | http://localhost:8080 — solo con `docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d` (por defecto Hasura no publica puertos) |
 | Prefect UI | http://localhost:4200 |
 | Dask dashboard | http://localhost:8787 |
 
