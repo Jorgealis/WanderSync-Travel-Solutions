@@ -17,6 +17,16 @@ Cuando cambie `.env.example` (por ejemplo, tras un `git pull`), actualice su `.e
 
 Si algún puerto ya está ocupado por otro proyecto, cámbielo en `.env` (`*_HOST_PORT`). Si cambia el de Prefect, ajuste también `PREFECT_UI_API_URL`.
 
+## Frontend (React + Apollo)
+
+```bash
+# Desarrollo con recarga en caliente (requiere el gateway publicado):
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
+cd frontend && npm ci && npm run dev     # http://localhost:5173
+```
+
+Los tipos de las consultas se generan desde el contrato [`docs/contratos/schema.graphql`](docs/contratos/schema.graphql) con `npm run codegen` (también lo hace `npm run build`).
+
 ## Ingesta de datos (Fase 2)
 
 Tres fuentes, tres tipos de ingesta, un mismo pipeline (Prefect + Dask):
@@ -44,7 +54,7 @@ python scripts/run_service_tests.py pipeline flights hotels cars
 | Panel | URL |
 |---|---|
 | Frontend | http://localhost:3000 |
-| API GraphQL | http://localhost:8000/graphql |
+| API GraphQL | http://localhost:3000/graphql (Nginx la reenvía al gateway, que no publica puertos; acceso directo en el 8000 con `docker-compose.debug.yml`) |
 | Hasura console | http://localhost:8080 — solo con `docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d` (por defecto Hasura no publica puertos) |
 | Prefect UI | http://localhost:4200 |
 | Dask dashboard | http://localhost:8787 |

@@ -6,7 +6,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-GRAPHQL_URL = os.getenv("WANDERSYNC_GATEWAY_URL", "http://127.0.0.1:8000/graphql")
+GRAPHQL_URL = os.getenv("WANDERSYNC_GATEWAY_URL", "http://127.0.0.1:3000/graphql")
 EMAIL = os.getenv("WANDERSYNC_E2E_EMAIL")
 PASSWORD = os.getenv("WANDERSYNC_E2E_PASSWORD")
 FLIGHT_OFFER_ID = os.getenv("WANDERSYNC_E2E_FLIGHT_OFFER_ID")

@@ -29,4 +29,6 @@ COPY services/api-gateway/ /app/
 USER app
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+# --proxy-headers: la IP del cliente viene en X-Forwarded-For desde el Nginx del frontend, que la
+# reemplaza con $remote_addr (no se puede falsificar a través de él). El gateway no publica puertos.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "*"]

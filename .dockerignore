@@ -11,5 +11,9 @@
 **/node_modules
 **/dist
 docs
+!docs/contratos/schema.graphql
+frontend/node_modules
+frontend/dist
+frontend/src/gql
 tests
 *.md

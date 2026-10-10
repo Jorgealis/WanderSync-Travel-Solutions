@@ -8,7 +8,7 @@ Configure these PowerShell environment variables with values from the local
 development environment. Do not commit credentials or a `.env` file:
 
 ```powershell
-$env:WANDERSYNC_GATEWAY_URL = "http://127.0.0.1:8000/graphql"
+$env:WANDERSYNC_GATEWAY_URL = "http://127.0.0.1:3000/graphql"  # el frontend (Nginx) reenvía /graphql al gateway
 $env:WANDERSYNC_E2E_EMAIL = "your-existing-account@example.com"
 $env:WANDERSYNC_E2E_PASSWORD = "your-local-password"
 $env:WANDERSYNC_E2E_FLIGHT_OFFER_ID = "flight-offer-uuid"
