@@ -29,7 +29,7 @@ Se evaluaron 10 fuentes reales de alquiler de autos y ninguna se puede usar sin 
 | Campos faltantes | Transmisión (~10 %) y puestos (~12 %) | Completarlos en la normalización (tarea 2.9) |
 | Latencia | 50–600 ms por respuesta | — |
 | Fallos transitorios | `500`/`503` (`MOCK_CARS_FAILURE_RATE`) | Reintentos de Prefect |
-| Bloqueos | `429` ocasional | **No** se reintenta (política) |
+| Bloqueos | `429` ocasional (`MOCK_CARS_BLOCK_RATE`, 0,5 %) | **No** se reintenta (política) |
 | Timeouts | Respuestas de 30 s (`MOCK_CARS_SLOW_RATE`) | Abandonar y reintentar |
 
 ## Datos

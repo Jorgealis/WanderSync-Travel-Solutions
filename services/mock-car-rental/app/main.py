@@ -7,7 +7,8 @@ simulen la complejidad de dichas fuentes". Este servicio la simula:
 - HTML con resultados paginados (MOCK_CARS_PAGE_SIZE por página) y enlace "Siguiente";
 - formatos de precio y de fecha distintos según la empresa;
 - campos faltantes (puestos, transmisión) y un resultado repetido entre páginas;
-- latencia aleatoria, errores 500/503/429 y respuestas lentas (provocan timeout).
+- latencia aleatoria, errores 500/503 (transitorios), 429 ocasional (bloqueo) y respuestas
+  lentas (provocan timeout).
 
     GET /alquiler/{CIUDAD}?recogida=AAAA-MM-DD&devolucion=AAAA-MM-DD&pagina=N
 """
@@ -27,6 +28,7 @@ SEED = int(os.environ.get("MOCK_CARS_SEED", "42"))
 PAGE_SIZE = int(os.environ.get("MOCK_CARS_PAGE_SIZE", "8"))
 FAILURE_RATE = float(os.environ.get("MOCK_CARS_FAILURE_RATE", "0.1"))
 SLOW_RATE = float(os.environ.get("MOCK_CARS_SLOW_RATE", "0.03"))
+BLOCK_RATE = float(os.environ.get("MOCK_CARS_BLOCK_RATE", "0.005"))
 SLOW_SECONDS = float(os.environ.get("MOCK_CARS_SLOW_SECONDS", "30"))
 LATENCY_MS = (int(os.environ.get("MOCK_CARS_LATENCY_MS_MIN", "50")), int(os.environ.get("MOCK_CARS_LATENCY_MS_MAX", "600")))
 
@@ -60,9 +62,12 @@ async def search(
     roll = _chaos.random()
     if roll < SLOW_RATE:
         await asyncio.sleep(SLOW_SECONDS)  # el cliente debería abandonar por timeout
-    elif roll < SLOW_RATE + FAILURE_RATE:
-        # Sobre todo 500/503 (transitorios: se reintentan); 429 es raro (bloqueo: no se reintenta).
-        status = _chaos.choice([500, 503, 500, 503, 429])
+    elif roll < SLOW_RATE + BLOCK_RATE:
+        # Bloqueo: la política del scraper NO lo reintenta.
+        return HTMLResponse("<h1>Error 429</h1><p>Demasiadas solicitudes.</p>", status_code=429)
+    elif roll < SLOW_RATE + BLOCK_RATE + FAILURE_RATE:
+        # Fallo transitorio: el flow de Prefect lo reintenta.
+        status = _chaos.choice([500, 503])
         return HTMLResponse(f"<h1>Error {status}</h1><p>Inténtalo más tarde.</p>", status_code=status)
 
     city = city.upper()

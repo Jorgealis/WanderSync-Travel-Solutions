@@ -17,6 +17,30 @@ Cuando cambie `.env.example` (por ejemplo, tras un `git pull`), actualice su `.e
 
 Si algún puerto ya está ocupado por otro proyecto, cámbielo en `.env` (`*_HOST_PORT`). Si cambia el de Prefect, ajuste también `PREFECT_UI_API_URL`.
 
+## Ingesta de datos (Fase 2)
+
+Tres fuentes, tres tipos de ingesta, un mismo pipeline (Prefect + Dask):
+
+| Catálogo | Fuente | Tipo | Ficha |
+|---|---|---|---|
+| Vuelos | Google Flights | Scraping de HTML real | [docs/fuentes/google-flights.md](docs/fuentes/google-flights.md) |
+| Hoteles | Hotelbeds (entorno de evaluación) | API oficial (requiere claves propias en `.env`) | [docs/fuentes/hotelbeds.md](docs/fuentes/hotelbeds.md) |
+| Autos | RutaFácil | Servicio **simulado** (sección 3.1 del enunciado) | [docs/fuentes/rutafacil-simulada.md](docs/fuentes/rutafacil-simulada.md) |
+
+Al arrancar con el catálogo vacío, `prefect-worker` lanza la primera ingesta automáticamente. Después: vuelos y autos cada hora, hoteles una vez al día.
+
+```bash
+# Ingesta manual de uno o varios catálogos
+docker compose exec prefect-worker python -m flows.ingest flights cars
+```
+
+**Demo de reintentos:** en la UI de Prefect → Deployments → `ingest-travel-data/vuelos-y-autos` → *Run* → *Custom run* con `catalogs=["cars"]` y `simulate_fault_rate=0.3`.
+
+```bash
+# Pruebas (requieren el stack levantado): scrapers e ingesta, y contrato de reservas
+python scripts/run_service_tests.py pipeline flights hotels cars
+```
+
 | Panel | URL |
 |---|---|
 | Frontend | http://localhost:3000 |

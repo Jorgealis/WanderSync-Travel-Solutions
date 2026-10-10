@@ -50,6 +50,7 @@ x-ingest-env: &ingest-env
   INGEST_DB_USER: ${INGEST_DB_USER}
   INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?}
   INGEST_SCHEDULE_CRON: ${INGEST_SCHEDULE_CRON:-0 * * * *}
+  INGEST_HOTELS_SCHEDULE_CRON: ${INGEST_HOTELS_SCHEDULE_CRON:-0 6 * * *}
   INGEST_ROUTES: ${INGEST_ROUTES:-BOG-MDE}
   INGEST_DATE_OFFSETS: ${INGEST_DATE_OFFSETS:-7,14,30}
   INGEST_STAY_NIGHTS: ${INGEST_STAY_NIGHTS:-3,5}
@@ -248,8 +249,9 @@ services:
 
   prefect-worker:
     <<: *data-pipeline
-    # Crea el work pool `ingest-pool` si no existe y ejecuta los flows desplegados.
-    command: ["prefect", "worker", "start", "--pool", "ingest-pool", "--type", "process"]
+    # Registra los deployments (vuelos y autos cada hora, hoteles diario, smoke) y ejecuta
+    # sus corridas programadas. Si el catálogo está vacío al arrancar, lanza la primera ingesta.
+    command: ["python", "-m", "flows.serve"]
     environment:
       <<: *ingest-env
       PREFECT_API_URL: ${PREFECT_API_URL:-http://prefect-server:4200/api}
@@ -257,6 +259,15 @@ services:
       prefect-server:
         condition: service_healthy
       dask-scheduler:
+        condition: service_healthy
+      # Las tablas del catálogo las crean las migraciones de estos servicios.
+      flights-service:
+        condition: service_healthy
+      hotels-service:
+        condition: service_healthy
+      cars-service:
+        condition: service_healthy
+      mock-car-rental:
         condition: service_healthy
 
   # Fuente SIMULADA de autos (decisión de la tarea 2.7; sección 3.1 del enunciado).
@@ -271,6 +282,7 @@ services:
       MOCK_CARS_PAGE_SIZE: ${MOCK_CARS_PAGE_SIZE:-8}
       MOCK_CARS_FAILURE_RATE: ${MOCK_CARS_FAILURE_RATE:-0.1}
       MOCK_CARS_SLOW_RATE: ${MOCK_CARS_SLOW_RATE:-0.03}
+      MOCK_CARS_BLOCK_RATE: ${MOCK_CARS_BLOCK_RATE:-0.005}
       MOCK_CARS_SLOW_SECONDS: ${MOCK_CARS_SLOW_SECONDS:-30}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]

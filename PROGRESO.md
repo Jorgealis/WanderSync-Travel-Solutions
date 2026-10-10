@@ -163,7 +163,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 |---|---|---|
 | **H0 — Contratos (día 1–2)** | Modelo de datos, SDL GraphQL del gateway, contratos REST internos (reserve/cancel/confirm), `.env.example` | Trabajo en paralelo de A y B |
 | **H1 — Infra base (día 3)** | `docker compose up` levanta Postgres, Redis, Hasura, Dask y Prefect con healthchecks | Servicios de A sobre la infraestructura real |
-| **H2 — Catálogo poblado (día 7)** | El flow Prefect+Dask llena las tablas de catálogo **con datos reales** de las fuentes elegidas | Búsqueda en el gateway y en el frontend |
+| **H2 — Catálogo poblado (día 7)** ✅ 2026-10-10 | El flow Prefect+Dask llena las tablas de catálogo **con datos reales** de las fuentes elegidas | Búsqueda en el gateway y en el frontend |
 | **H3 — SAGA funcional (día 8)** | Mutación `bookPackage` con *happy path* y compensaciones | Checkout en el frontend |
 | **H4 — Code freeze (día 12)** | Todo integrado, seguridad aplicada | Auditoría final, documentación y grabación de la demo |
 
@@ -231,13 +231,13 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - fechas a ISO/UTC y deduplicación por `(source, external_id)`
   - validación con Pydantic; los registros inválidos se descartan y se cuentan
 - [x] **2.10** **Persistencia por lotes** (`ingestion/persist.py`). ✅ 2026-10-09: prueba de integración contra la BD real: la segunda ingesta actualiza el precio y conserva las reservas de la SAGA; `ingest` recibe *permission denied* al tocar el inventario. 75 pruebas en el pipeline (`python scripts/run_service_tests.py pipeline`). Detalle: upsert `ON CONFLICT DO UPDATE` que **nunca** modifica el inventario; el inventario inicial se asigna solo al insertar una oferta nueva.
-- [ ] **2.11** **Flow de Prefect** `ingest_travel_data`:
+- [x] **2.11** **Flow de Prefect** `ingest_travel_data` (`flows/ingest.py`). ✅ 2026-10-10: subflows por catálogo sobre `DaskTaskRunner`, normalización con `dask.bag` en el clúster, reintentos solo ante fallos transitorios (`retry_condition_fn`), límites de ritmo **globales** por fuente con `rate_limit` de Prefect (Google: 1 petición/5 s entre todos los workers; 21 búsquedas en 134 s) y parámetro `simulate_fault_rate` para la demo. Detalle:
   - `DaskTaskRunner(address="tcp://dask-scheduler:8786")` con fan-out `.map()` por fuente × ruta × fecha
   - `@task(retries=3, retry_delay_seconds=exponential_backoff(10), retry_jitter_factor=0.5)` en extracción y escritura; **sin reintentos** ante bloqueo (CAPTCHA)
   - **límite de concurrencia por fuente** (tags de Prefect), para no saturar las fuentes reales
   - interruptor `SCRAPER_FAULT_RATE`, que simula fallos de red, para demostrar los *retries* en vivo
   - subflows `ingest_flights`, `ingest_hotels` e `ingest_cars`, y artefactos con el resumen (descargados, válidos, descartados, insertados, actualizados)
-- [ ] **2.12** **Deployment de Prefect** con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
+- [x] **2.12** **Deployment de Prefect** (`flows/serve.py`). ✅ 2026-10-10, **hito H2 verificado** con arranque en frío (BD vacía, sin pasos manuales): `serve` registró 3 deployments (`vuelos-y-autos` cada hora, `hoteles-diario`, `smoke`) y lanzó solo la primera ingesta → **572 vuelos reales, 3.533 ofertas de hotel reales (15 búsquedas omitidas por la cuota) y 478 autos**. Demo de reintentos (`simulate_fault_rate=0.3`): 20 de 30 tareas reintentadas y flow `Completed`. Reparto en Dask 4/3/5. Pruebas: 117/117. Detalle original: con schedule configurable (`INGEST_SCHEDULE_CRON`, frecuencia moderada, por ejemplo cada hora) que se registre solo al arrancar el contenedor, y verificación del hito **H2**: flow visible en Prefect, tareas repartidas en Dask, reintentos visibles y tablas con datos reales.
 
 **Rol A — Servicios de dominio**
 - [x] **2.13** **flights-service**: leer ofertas, `POST /reservations` (descuenta asientos con `SELECT ... FOR UPDATE`, es idempotente por `saga_id` y falla con 409 si no hay cupo), `cancel` (restaura el cupo y es idempotente), `confirm`.
