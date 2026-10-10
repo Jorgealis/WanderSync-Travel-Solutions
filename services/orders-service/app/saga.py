@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
@@ -50,6 +50,19 @@ async def recover_pending_sagas() -> None:
 
 
 async def _run_recovered_saga(saga_id: str) -> None:
+    # El intento que estaba en curso cuando cayó el orquestador nunca terminó: se cierra
+    # como interrumpido para que la línea de tiempo no muestre un paso "RUNNING" eterno.
+    async with db.sessionmaker() as session, session.begin():
+        await session.execute(
+            update(SagaStepModel)
+            .where(SagaStepModel.saga_id == saga_id, SagaStepModel.status == "RUNNING")
+            .values(
+                status="FAILED",
+                error_code="ORCHESTRATOR_RESTARTED",
+                error_message="Interrumpido por un reinicio del orquestador; la SAGA se retomó",
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
     async with db.sessionmaker() as session:
         async with httpx.AsyncClient(timeout=settings.saga_step_timeout_seconds) as client:
             await execute_saga(session, saga_id, client)

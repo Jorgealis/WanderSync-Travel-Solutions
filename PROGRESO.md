@@ -259,7 +259,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
   - Cada paso se registra en `saga_steps` (paso, estado, intento, error y timestamps)
 - [x] **3.3** ✅ 2026-10-10 (Gabriela, integrado y verificado) Implementar el **pago simulado** (`payments`) con su compensación de reembolso; el pago puede fallar de forma configurable.
 - [x] **3.4** ✅ 2026-10-10 (Gabriela, integrado y verificado) Configurar **reintentos con backoff** en los pasos (fallos transitorios) antes de compensar, y reintentar también las compensaciones hasta que se completen (deben ser idempotentes).
-- [x] **3.5** (Gabriela) Hacer la SAGA **recuperable**: al arrancar, `orders-service` retoma las SAGAs en estado `STARTED/COMPENSATING`, para cubrir una caída del orquestador.
+- [x] **3.5** ✅ 2026-10-10 (Gabriela; verificado matando `orders-service` en mitad de una SAGA: al reiniciar la retomó y terminó CONFIRMED sin duplicar reservas; corrección: los intentos interrumpidos se cierran como `ORCHESTRATOR_RESTARTED` en vez de quedar `RUNNING`) Hacer la SAGA **recuperable**: al arrancar, `orders-service` retoma las SAGAs en estado `STARTED/COMPENSATING`, para cubrir una caída del orquestador.
 - [x] **3.6** ✅ 2026-10-10: `tests/e2e/test_saga.py` (Gabriela) pasa contra el stack real a través del gateway; además se verificó a mano la falla en FLIGHT. Escribir pruebas de integración de la SAGA: *happy path*; fallo en autos (se cancelan hotel y vuelo); fallo en pago (se cancelan auto, hotel y vuelo); fallo en hotel (se cancela vuelo). Validar que el inventario vuelve al valor original.
 - [x] **3.7** ✅ 2026-10-10 (Gabriela, integrado y verificado) Verificar el hito **H3**: endpoint interno `POST /orders/book` funcional con `simulate_failure_at`.
 
