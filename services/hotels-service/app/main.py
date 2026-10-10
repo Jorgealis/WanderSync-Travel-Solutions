@@ -1,7 +1,6 @@
 from wandersync_common import create_service_app
+from .config import settings
+from .db import db
+from .router import router
 
-from app.config import settings
-from app.db import db
-
-# Los routers del dominio (reservations, etc.) se agregan en la Fase 2.
-app = create_service_app(settings, db, routers=[])
+app = create_service_app(settings, db, routers=[router])

@@ -1,1 +1,97 @@
-[]
+- name: default
+  kind: postgres
+  configuration:
+    connection_info:
+      database_url:
+        from_env: CATALOG_DATABASE_URL
+      isolation_level: read-committed
+      use_prepared_statements: false
+  tables:
+    - table:
+        schema: flights
+        name: flight_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - airline
+              - flight_number
+              - origin
+              - destination
+              - departure_at
+              - arrival_at
+              - cabin_class
+              - price
+              - currency
+              - seats_total
+              - seats_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
+    - table:
+        schema: hotels
+        name: room_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - hotel_name
+              - city_code
+              - address
+              - stars
+              - rating
+              - room_type
+              - max_guests
+              - check_in
+              - check_out
+              - nights
+              - price_per_night
+              - price_total
+              - currency
+              - rooms_total
+              - rooms_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
+    - table:
+        schema: cars
+        name: car_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - company
+              - model
+              - category
+              - transmission
+              - seats
+              - city_code
+              - pickup_date
+              - dropoff_date
+              - days
+              - price_per_day
+              - price_total
+              - currency
+              - units_total
+              - units_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
