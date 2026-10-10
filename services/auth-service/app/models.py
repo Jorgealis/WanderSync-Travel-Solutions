@@ -1,9 +1,16 @@
-"""Modelos SQLAlchemy del servicio (ver docs/contratos/modelo-datos.md).
+from sqlalchemy import Column, DateTime, String, Uuid, text
+from sqlalchemy.sql import func
 
-Se completan en la Fase 4. Todo modelo debe heredar de `Base` y estar importado
-aquí para que Alembic lo detecte con `alembic revision --autogenerate`.
-"""
+from .db import Base
 
-from app.db import Base
 
-__all__ = ["Base"]
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id = Column(Uuid(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()"))
+    email = Column(String(254), unique=True, index=True, nullable=False)
+    full_name = Column(String(120), nullable=False)
+    password_hash = Column(String, nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

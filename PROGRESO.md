@@ -164,7 +164,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 | **H0 — Contratos (día 1–2)** | Modelo de datos, SDL GraphQL del gateway, contratos REST internos (reserve/cancel/confirm), `.env.example` | Trabajo en paralelo de A y B |
 | **H1 — Infra base (día 3)** | `docker compose up` levanta Postgres, Redis, Hasura, Dask y Prefect con healthchecks | Servicios de A sobre la infraestructura real |
 | **H2 — Catálogo poblado (día 7)** ✅ 2026-10-10 | El flow Prefect+Dask llena las tablas de catálogo **con datos reales** de las fuentes elegidas | Búsqueda en el gateway y en el frontend |
-| **H3 — SAGA funcional (día 8)** | Mutación `bookPackage` con *happy path* y compensaciones | Checkout en el frontend |
+| **H3 — SAGA funcional (día 8)** ✅ 2026-10-10 | Mutación `bookPackage` con *happy path* y compensaciones | Checkout en el frontend |
 | **H4 — Code freeze (día 12)** | Todo integrado, seguridad aplicada | Auditoría final, documentación y grabación de la demo |
 
 ---
@@ -246,23 +246,25 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 - [x] **2.16** Agregar un **mecanismo de inyección de fallos** en cada servicio (header `X-Simulate-Failure` o flag de la SAGA), activo solo con `ENABLE_FAULT_INJECTION=true`.
 - [x] **2.17** Escribir pruebas unitarias de la reserva y la cancelación: idempotencia, falta de cupo y doble cancelación. ✅ 2026-10-09: lógica común en `libs/common/wandersync_common/reservations.py`; batería de contrato de 14 pruebas (`wandersync_common/testing/reservation_contract.py`) que corre en los 3 servicios contra la BD real, incluidas concurrencia sin sobreventa y tombstones (42/42). Ejecutar: `python scripts/run_service_tests.py`. Permisos por columna verificados: `ingest` no puede modificar el inventario.
 
+> **Integración del Rol A (2026-10-10).** Se unió la rama `rol-a` de Gabriela (`orders-service`, `auth-service`, `api-gateway`, prueba E2E) conservando las reservas de vuelos/hoteles/autos de `prod` (alineadas con la ingesta y probadas). Se corrigieron los errores que impedían el arranque o el uso: sesión de BD mal usada en orders y auth, `GatewayContext` sin `BaseContext`, `graphql-core` sin fijar, import de Starlette, imports relativos, `validation_rules` en `GraphQLRouter`, resolutor por defecto que no leía diccionarios, y nombres de raíz de Hasura (`custom_name`). Verificado de punta a punta contra el catálogo real: SAGA (happy path + 4 puntos de fallo con compensación e inventario restaurado), catálogo y `searchPackages` vía Hasura, registro/login, Session Fixation, CSRF, autorización, rate limiting y la prueba E2E de Gabriela (1/1). Las 117 pruebas previas siguen pasando.
+
 ### Fase 3 — Patrón SAGA y capa GraphQL de datos (Días 6–8)
 
 **Rol A — Orquestador SAGA (25 % de la nota)**
-- [ ] **3.1** **orders-service**: crear la orden con estado `PENDING` y la factura (`orders.invoices`) con el cálculo del total del paquete.
-- [ ] **3.2** Implementar la **máquina de estados de la SAGA** persistida:
+- [x] **3.1** ✅ 2026-10-10 (Gabriela, integrado y verificado) **orders-service**: crear la orden con estado `PENDING` y la factura (`orders.invoices`) con el cálculo del total del paquete.
+- [x] **3.2** ✅ 2026-10-10 (Gabriela, integrado y verificado) Implementar la **máquina de estados de la SAGA** persistida:
   - Pasos compensables: `RESERVE_FLIGHT → RESERVE_HOTEL → RESERVE_CAR`; pivote: `PROCESS_PAYMENT`; retriables: `CONFIRM_FLIGHT → CONFIRM_HOTEL → CONFIRM_CAR → ISSUE_INVOICE`
   - Compensaciones en orden inverso, incluido el paso que falló (detalle en [api-interna.md §4](docs/contratos/api-interna.md))
   - Estados: `STARTED, COMPENSATING, COMPLETED, COMPENSATED, FAILED`
   - Cada paso se registra en `saga_steps` (paso, estado, intento, error y timestamps)
-- [ ] **3.3** Implementar el **pago simulado** (`payments`) con su compensación de reembolso; el pago puede fallar de forma configurable.
-- [ ] **3.4** Configurar **reintentos con backoff** en los pasos (fallos transitorios) antes de compensar, y reintentar también las compensaciones hasta que se completen (deben ser idempotentes).
-- [ ] **3.5** Hacer la SAGA **recuperable**: al arrancar, `orders-service` retoma las SAGAs en estado `STARTED/COMPENSATING`, para cubrir una caída del orquestador.
-- [ ] **3.6** Escribir pruebas de integración de la SAGA: *happy path*; fallo en autos (se cancelan hotel y vuelo); fallo en pago (se cancelan auto, hotel y vuelo); fallo en hotel (se cancela vuelo). Validar que el inventario vuelve al valor original.
-- [ ] **3.7** Verificar el hito **H3**: endpoint interno `POST /orders/book` funcional con `simulate_failure_at`.
+- [x] **3.3** ✅ 2026-10-10 (Gabriela, integrado y verificado) Implementar el **pago simulado** (`payments`) con su compensación de reembolso; el pago puede fallar de forma configurable.
+- [x] **3.4** ✅ 2026-10-10 (Gabriela, integrado y verificado) Configurar **reintentos con backoff** en los pasos (fallos transitorios) antes de compensar, y reintentar también las compensaciones hasta que se completen (deben ser idempotentes).
+- [x] **3.5** (Gabriela) Hacer la SAGA **recuperable**: al arrancar, `orders-service` retoma las SAGAs en estado `STARTED/COMPENSATING`, para cubrir una caída del orquestador.
+- [x] **3.6** ✅ 2026-10-10: `tests/e2e/test_saga.py` (Gabriela) pasa contra el stack real a través del gateway; además se verificó a mano la falla en FLIGHT. Escribir pruebas de integración de la SAGA: *happy path*; fallo en autos (se cancelan hotel y vuelo); fallo en pago (se cancelan auto, hotel y vuelo); fallo en hotel (se cancela vuelo). Validar que el inventario vuelve al valor original.
+- [x] **3.7** ✅ 2026-10-10 (Gabriela, integrado y verificado) Verificar el hito **H3**: endpoint interno `POST /orders/book` funcional con `simulate_failure_at`.
 
 **Rol B — Hasura y base del frontend**
-- [ ] **3.8** Configurar Hasura: registrar las tablas de catálogo, crear las relaciones, definir el rol `gateway` de solo lectura con límite de filas, y exportar la metadata a `infra/hasura/metadata` para que se aplique automáticamente en `docker compose up` (imagen `cli-migrations`).
+- [x] **3.8** ✅ 2026-10-10 (Gabriela; integración: `custom_name` para que las raíces no lleven el prefijo del esquema y permisos para las columnas nuevas del contrato) Configurar Hasura: registrar las tablas de catálogo, crear las relaciones, definir el rol `gateway` de solo lectura con límite de filas, y exportar la metadata a `infra/hasura/metadata` para que se aplique automáticamente en `docker compose up` (imagen `cli-migrations`).
 - [ ] **3.9** Desactivar la consola y la introspección de Hasura para clientes externos; Hasura solo debe ser accesible por la red `backend` y protegido con `HASURA_GRAPHQL_ADMIN_SECRET`.
 - [ ] **3.10** Montar el esqueleto del frontend: Vite + React + TS + Tailwind, Apollo Client con `credentials: 'include'`, GraphQL Codegen sobre el SDL del contrato (0.3) y rutas (`/login`, `/search`, `/package`, `/checkout`, `/orders/:id`).
 - [ ] **3.11** Crear el Dockerfile multi-stage del frontend (build con Node y servido con Nginx) y añadirlo a compose.
@@ -270,18 +272,18 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 ### Fase 4 — API Gateway GraphQL y autenticación (Días 7–10)
 
 **Rol A**
-- [ ] **4.1** Implementar el **gateway con Strawberry** sobre el SDL acordado.
+- [x] **4.1** ✅ 2026-10-10 (Gabriela, integrado y verificado: `searchFlights/Hotels/Cars/Packages` y `catalogStatus` devuelven el catálogo real vía Hasura). *Pendiente menor: exponer en el esquema los campos agregados al contrato en 2.2/2.5 (`operatedBy`, `stops`, `originalPrice`, `roomName`, `boardName`…).* Implementar el **gateway con Strawberry** sobre el SDL acordado.
   - Las queries de catálogo se resuelven contra Hasura, **reenviando solo los campos que pidió el cliente** (`info.selected_fields`), para no generar over-fetching aguas abajo.
   - `searchPackages` consolida vuelos, hoteles y autos en una sola respuesta, con combinación por presupuesto y fechas.
   - Se usan DataLoaders para evitar N+1.
-- [ ] **4.2** Implementar `bookPackage` → `orders-service` y `order(id)` con el detalle de los pasos de la SAGA (para mostrarlo en el frontend).
-- [ ] **4.3** **auth-service**: `register` y `login` con **Argon2id** (parámetros de §1), rehash si cambian los parámetros y mensajes de error genéricos (sin enumeración de usuarios).
-- [ ] **4.4** **Sesiones en Redis** con mitigación de **Session Fixation**:
+- [x] **4.2** ✅ 2026-10-10 (Gabriela, integrado y verificado) Implementar `bookPackage` → `orders-service` y `order(id)` con el detalle de los pasos de la SAGA (para mostrarlo en el frontend).
+- [x] **4.3** ✅ 2026-10-10 (Gabriela, integrado y verificado) **auth-service**: `register` y `login` con **Argon2id** (parámetros de §1), rehash si cambian los parámetros y mensajes de error genéricos (sin enumeración de usuarios).
+- [x] **4.4** ✅ 2026-10-10 (Gabriela, integrado y verificado): un ID plantado se borra y se emite uno nuevo de 43 caracteres; el plantado deja de autenticar. **Sesiones en Redis** con mitigación de **Session Fixation**:
   - en el login exitoso se **destruye la sesión previa y se emite un ID nuevo** (`secrets.token_urlsafe(32)`)
   - cookie `HttpOnly`, `Secure` (configurable en desarrollo), `SameSite=Strict` y expiración absoluta e inactiva
   - `logout` invalida la sesión en el servidor
-- [ ] **4.5** Agregar **autorización** en los resolvers: `bookPackage`, `myOrders` y `order` exigen sesión, y un usuario solo ve sus propias órdenes.
-- [ ] **4.6** Aplicar **límites al gateway**: profundidad máxima de query, coste o complejidad, introspección desactivada en producción, CORS restringido al origen del frontend y protección CSRF (header personalizado más SameSite).
+- [x] **4.5** ✅ 2026-10-10 (Gabriela, integrado y verificado) (sin sesión → `UNAUTHENTICATED`) Agregar **autorización** en los resolvers: `bookPackage`, `myOrders` y `order` exigen sesión, y un usuario solo ve sus propias órdenes.
+- [x] **4.6** ✅ 2026-10-10 (Gabriela, integrado y verificado) (sin cabecera CSRF → `FORBIDDEN`) Aplicar **límites al gateway**: profundidad máxima de query, coste o complejidad, introspección desactivada en producción, CORS restringido al origen del frontend y protección CSRF (header personalizado más SameSite).
 
 **Rol B**
 - [ ] **4.7** Crear la vista de **login/registro** en el frontend.
@@ -293,13 +295,13 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 ### Fase 5 — Ciberseguridad y endurecimiento (Días 10–12)
 
 **Rol A**
-- [ ] **5.1** Configurar el **rate limiting** con un backend Redis:
+- [x] **5.1** ✅ 2026-10-10 (Gabriela, integrado y verificado) (el 6.º login del minuto → `RATE_LIMITED`) Configurar el **rate limiting** con un backend Redis:
   - por **operación GraphQL** (`login`, `register`, `bookPackage`), porque todo pasa por el endpoint único `/graphql` y limitar por ruta no basta
   - límites por IP y por usuario, por ejemplo `login: 5/min/IP`, `bookPackage: 3/min/usuario`
   - respuesta GraphQL con un error `RATE_LIMITED` y `Retry-After`
-- [ ] **5.2** Agregar rate limiting también en el endpoint de pago de `orders-service` (defensa en profundidad).
+- [x] **5.2** (Gabriela) Agregar rate limiting también en el endpoint de pago de `orders-service` (defensa en profundidad).
 - [ ] **5.3** Escribir pruebas de seguridad automatizadas: que el ID de sesión cambie tras el login (pre-login ≠ post-login), que el hash almacenado empiece por `$argon2id$` y que la petición 6 de login en un minuto reciba 429/`RATE_LIMITED`.
-- [ ] **5.4** Añadir headers de seguridad en el gateway y en Nginx (CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
+- [x] **5.4** (Gabriela, gateway) Añadir headers de seguridad en el gateway y en Nginx (CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
 
 **Rol B**
 - [ ] **5.5** **Supply chain audit**: ejecutar `pip-audit -r requirements.txt` en cada servicio, `npm audit --audit-level=moderate` en el frontend y `trivy image` sobre cada imagen; guardar los reportes en `docs/seguridad/` (JSON y resumen en Markdown).
@@ -310,7 +312,7 @@ Son los puntos donde un rol depende del otro. Conviene acordarlos con fecha.
 ### Fase 6 — Integración y pruebas end-to-end (Días 11–12) · *A+B*
 
 - [ ] **6.1 (A+B)** Probar el arranque limpio con `docker compose down -v && docker compose up --build`: todo debe levantar sin intervención manual, con migraciones, metadata de Hasura, deployment de Prefect y una primera ingesta real.
-- [ ] **6.2 (A)** Escribir el script E2E `tests/e2e/test_saga.py`, que contra el gateway haga login → búsqueda → `bookPackage` en el *happy path* y con fallo en cada paso, y verifique la orden y el inventario.
+- [x] **6.2 (A)** ✅ 2026-10-10 (Gabriela) Escribir el script E2E `tests/e2e/test_saga.py`, que contra el gateway haga login → búsqueda → `bookPackage` en el *happy path* y con fallo en cada paso, y verifique la orden y el inventario.
 - [ ] **6.3 (B)** Escribir el script E2E de ingesta: lanzar el flow manualmente y verificar las filas nuevas, los reintentos registrados en Prefect y que el inventario de las ofertas existentes no cambie.
 - [ ] **6.4 (B)** Probar el escalado: `docker compose up --scale dask-worker=4` y mostrar el reparto de tareas en el dashboard de Dask.
 - [ ] **6.5 (A+B)** Corregir los bugs de integración y alcanzar el hito **H4 (code freeze)**.

@@ -1,1 +1,123 @@
-[]
+# Tarea 3.8 — catálogo expuesto por Hasura (solo lectura) al API Gateway.
+# Las tablas no están en `public`: custom_name evita el prefijo del esquema
+# (flight_offers en lugar de flights_flight_offers), que es como las consulta el gateway.
+- name: default
+  kind: postgres
+  configuration:
+    connection_info:
+      database_url:
+        from_env: CATALOG_DATABASE_URL
+      isolation_level: read-committed
+      use_prepared_statements: false
+  tables:
+    - table:
+        schema: flights
+        name: flight_offers
+      configuration:
+        custom_name: flight_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - airline
+              - operated_by
+              - flight_number
+              - origin
+              - destination
+              - departure_at
+              - arrival_at
+              - stops
+              - cabin_class
+              - price
+              - currency
+              - price_original
+              - currency_original
+              - seats_total
+              - seats_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
+    - table:
+        schema: hotels
+        name: room_offers
+      configuration:
+        custom_name: room_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - hotel_code
+              - hotel_name
+              - city_code
+              - zone_name
+              - address
+              - latitude
+              - longitude
+              - stars
+              - category_name
+              - rating
+              - room_code
+              - room_name
+              - room_type
+              - board_code
+              - board_name
+              - max_guests
+              - check_in
+              - check_out
+              - nights
+              - price_per_night
+              - price_total
+              - currency
+              - price_original
+              - currency_original
+              - rooms_total
+              - rooms_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
+    - table:
+        schema: cars
+        name: car_offers
+      configuration:
+        custom_name: car_offers
+      select_permissions:
+        - role: gateway
+          permission:
+            columns:
+              - id
+              - source
+              - external_id
+              - company
+              - model
+              - category
+              - transmission
+              - seats
+              - city_code
+              - pickup_date
+              - dropoff_date
+              - days
+              - price_per_day
+              - price_total
+              - currency
+              - price_original
+              - currency_original
+              - units_total
+              - units_available
+              - scraped_at
+              - created_at
+              - updated_at
+            filter: {}
+            limit: 50
+            allow_aggregations: true
